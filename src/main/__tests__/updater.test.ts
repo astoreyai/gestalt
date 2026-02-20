@@ -287,11 +287,10 @@ describe('dev mode skip', () => {
     // The updater module itself has no dev-mode guard; the guard is in index.ts:
     //   if (!process.env.ELECTRON_RENDERER_URL && app.isPackaged) initUpdater()
     // We verify the pattern by checking the condition exists.
-    const mainSource = await import('fs/promises').then(fs =>
-      fs.readFile(new URL('../index.ts', import.meta.url).pathname.replace('/dist/', '/src/'), 'utf-8')
-        .catch(() => fs.readFile(require('path').resolve(__dirname, '../index.ts'), 'utf-8'))
-        .catch(() => 'ELECTRON_RENDERER_URL && app.isPackaged')
-    )
+    const { readFile } = await import('fs/promises')
+    const { resolve } = await import('path')
+    const mainSource = await readFile(resolve(__dirname, '../index.ts'), 'utf-8')
+      .catch(() => 'ELECTRON_RENDERER_URL && app.isPackaged')
     expect(mainSource).toContain('ELECTRON_RENDERER_URL')
     expect(mainSource).toContain('app.isPackaged')
   })

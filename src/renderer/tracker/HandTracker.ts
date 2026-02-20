@@ -254,7 +254,7 @@ export class HandTracker {
     return new Promise<boolean>((resolve) => {
       try {
         const worker = new Worker(
-          new URL('../../../../workers/tracking.worker.ts', import.meta.url)
+          new URL('../../../workers/tracking.worker.ts', import.meta.url)
         )
 
         const canvas = new OffscreenCanvas(

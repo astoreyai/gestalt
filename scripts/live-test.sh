@@ -82,7 +82,7 @@ step "Unit tests (vitest)"
 TEST_OUTPUT=$(npx vitest run 2>&1) || true
 TEST_COUNT=$(echo "$TEST_OUTPUT" | grep -oP '\d+ passed' | head -1 || echo "0 passed")
 TEST_FILES=$(echo "$TEST_OUTPUT" | grep -oP '\d+ passed' | tail -1 || echo "")
-if echo "$TEST_OUTPUT" | grep -q "Tests.*passed" && ! echo "$TEST_OUTPUT" | grep -q "failed"; then
+if echo "$TEST_OUTPUT" | grep -q "Tests.*passed" && ! echo "$TEST_OUTPUT" | grep -qP '\d+ failed'; then
   pass "$TEST_COUNT"
 else
   FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -oP '\d+ failed' | head -1 || echo "unknown")
