@@ -2,12 +2,29 @@
 
 The Tracking app runs a WebSocket server (default port `9876`) that broadcasts gesture events to connected programs. Any language that supports WebSocket can connect.
 
+## Authentication
+
+The bus server requires token authentication by default. When the server starts, it generates a random token that clients must include as a query parameter when connecting.
+
+- **Connection URL format**: `ws://localhost:9876?token=TOKEN`
+- The token is generated per server instance and can be retrieved in the main process via `busServer.getToken()`
+- Connections without a valid token are immediately closed with code `1008 (Unauthorized)`
+- To disable authentication (e.g. for local development), set `authenticate: false` in the `BusServerConfig`:
+  ```typescript
+  const server = new BusServer({ port: 9876, authenticate: false })
+  ```
+
 ## Quick Start (Node.js)
 
 ```typescript
 import { connect } from './sdk'
 
-const conn = await connect('my-program', ['rotate', 'select'])
+// Token is provided by the Tracking app (e.g. via IPC or env var)
+const token = process.env.TRACKING_BUS_TOKEN
+
+const conn = await connect('my-program', ['rotate', 'select'], {
+  url: `ws://localhost:9876?token=${token}`
+})
 
 conn.onGesture((gesture) => {
   console.log(`${gesture.name} (${gesture.phase}) at [${gesture.position}]`)
@@ -19,10 +36,11 @@ conn.sendData({ action: 'hello', value: 42 })
 ## Quick Start (Python)
 
 ```python
-import asyncio, json, websockets
+import asyncio, json, os, websockets
 
 async def main():
-    async with websockets.connect("ws://localhost:9876") as ws:
+    token = os.environ.get("TRACKING_BUS_TOKEN", "")
+    async with websockets.connect(f"ws://localhost:9876?token={token}") as ws:
         await ws.send(json.dumps({
             "type": "register",
             "program": "my-python-app",

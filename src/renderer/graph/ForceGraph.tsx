@@ -1,6 +1,8 @@
 /**
  * ForceGraph — 3D force-directed graph layout and visualization.
- * Uses d3-force-3d for physics simulation and composes Nodes + Edges components.
+ * Uses a Web Worker for physics simulation (d3-force-3d) to keep the
+ * main / render thread free. Falls back to synchronous simulation when
+ * Worker is unavailable (e.g. vitest/happy-dom).
  */
 import React, {
   useRef,
@@ -11,15 +13,11 @@ import React, {
   forwardRef
 } from 'react'
 import { useThree } from '@react-three/fiber'
-import {
-  forceSimulation,
-  forceManyBody,
-  forceLink,
-  forceCenter
-} from 'd3-force-3d'
 import type { GraphData } from '@shared/protocol'
 import { Nodes, type NodePosition } from './Nodes'
 import { Edges } from './Edges'
+import { createForceSimulation } from './force-layout'
+import type { WorkerResponse } from '../../../workers/force-layout.worker'
 
 /** Public imperative API exposed via ref */
 export interface ForceGraphHandle {
@@ -36,25 +34,10 @@ export interface ForceGraphProps {
   onNodeHover?: (id: string | null) => void
 }
 
-/** Internal node type for d3-force simulation (mutable positions) */
-interface SimNode {
-  id: string
-  x: number
-  y: number
-  z: number
-  index?: number
-}
-
-/** Internal link type for d3-force simulation */
-interface SimLink {
-  source: string | SimNode
-  target: string | SimNode
-  weight?: number
-}
-
 /**
  * ForceGraph component.
- * Runs a d3-force-3d simulation and renders nodes/edges via instanced rendering.
+ * Runs a d3-force-3d simulation (in a Web Worker when available) and
+ * renders nodes/edges via instanced rendering.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
   function ForceGraph({ data, onNodeClick, onNodeHover }, ref) {
@@ -64,7 +47,6 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     )
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [hoveredId, setHoveredId] = useState<string | null>(null)
-    const simulationRef = useRef<ReturnType<typeof forceSimulation> | null>(null)
     const positionsRef = useRef<Map<string, NodePosition>>(new Map())
     const animFrameRef = useRef<number>(0)
 
@@ -93,83 +75,88 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     useEffect(() => {
       if (!data.nodes.length) return
 
-      // Create simulation nodes with initial positions
-      const simNodes: SimNode[] = data.nodes.map((node) => ({
+      // Prepare node/edge arrays for the simulation
+      const simNodes = data.nodes.map((node) => ({
         id: node.id,
         x: node.position?.x ?? (Math.random() - 0.5) * 50,
         y: node.position?.y ?? (Math.random() - 0.5) * 50,
         z: node.position?.z ?? (Math.random() - 0.5) * 50
       }))
 
-      // Create links
-      const simLinks: SimLink[] = data.edges.map((edge) => ({
+      const simEdges = data.edges.map((edge) => ({
         source: edge.source,
         target: edge.target,
         weight: edge.weight
       }))
 
-      // Configure simulation
-      const sim = forceSimulation(simNodes, 3)
-        .force(
-          'charge',
-          forceManyBody().strength(-40).distanceMax(200)
-        )
-        .force(
-          'link',
-          forceLink(simLinks)
-            .id((d: SimNode) => d.id)
-            .distance(15)
-            .strength((link: SimLink) => {
-              const w = typeof link.weight === 'number' ? link.weight : 0.5
-              return 0.3 + w * 0.7
-            })
-        )
-        .force('center', forceCenter(0, 0, 0).strength(0.05))
-        .alphaDecay(0.02)
-        .velocityDecay(0.3)
+      // Helper: convert a positions array from the worker into a Map
+      const arrayToMap = (
+        arr: Array<{ id: string; x: number; y: number; z: number }>
+      ): Map<string, NodePosition> => {
+        const map = new Map<string, NodePosition>()
+        for (const p of arr) {
+          map.set(p.id, { x: p.x, y: p.y, z: p.z })
+        }
+        return map
+      }
 
-      simulationRef.current = sim
+      // ── Try Web Worker path ───────────────────────────────────
+      if (typeof Worker !== 'undefined') {
+        let worker: Worker | null = null
+        try {
+          worker = new Worker(
+            new URL('../../../workers/force-layout.worker.ts', import.meta.url)
+          )
+        } catch {
+          // Worker construction can fail in some environments; fall through
+          worker = null
+        }
 
-      // Tick handler: extract positions from simulation nodes
-      const tick = (): void => {
+        if (worker) {
+          const w = worker
+
+          w.onmessage = (event: MessageEvent<WorkerResponse>) => {
+            const { type, positions: posArr } = event.data
+            if (type === 'positions' || type === 'done') {
+              const newPositions = arrayToMap(posArr)
+              positionsRef.current = newPositions
+              setPositions(newPositions)
+            }
+          }
+
+          w.postMessage({ type: 'init', nodes: simNodes, edges: simEdges })
+
+          return () => {
+            w.postMessage({ type: 'stop' })
+            w.terminate()
+          }
+        }
+      }
+
+      // ── Synchronous fallback (no Worker available) ────────────
+      const sim = createForceSimulation({ nodes: simNodes, edges: simEdges })
+
+      const loop = (): void => {
+        const result = sim.tick()
         const newPositions = new Map<string, NodePosition>()
-        for (const node of simNodes) {
-          newPositions.set(node.id, {
-            x: node.x ?? 0,
-            y: node.y ?? 0,
-            z: node.z ?? 0
-          })
+        for (const [id, pos] of result.positions) {
+          newPositions.set(id, pos)
         }
         positionsRef.current = newPositions
         setPositions(newPositions)
 
-        if (sim.alpha() > sim.alphaMin()) {
-          animFrameRef.current = requestAnimationFrame(tick)
-        }
-      }
-
-      // Start simulation loop
-      sim.stop() // We drive it manually via requestAnimationFrame
-      const manualTick = (): void => {
-        sim.tick()
-        tick()
-      }
-      animFrameRef.current = requestAnimationFrame(function loop() {
-        manualTick()
-        if (sim.alpha() > sim.alphaMin()) {
+        if (!result.done) {
           animFrameRef.current = requestAnimationFrame(loop)
         }
-      })
+      }
+      animFrameRef.current = requestAnimationFrame(loop)
 
       return () => {
         if (animFrameRef.current !== 0) {
           cancelAnimationFrame(animFrameRef.current)
           animFrameRef.current = 0
         }
-        if (simulationRef.current) {
-          simulationRef.current.stop()
-          simulationRef.current = null
-        }
+        sim.stop()
       }
     }, [data])
 

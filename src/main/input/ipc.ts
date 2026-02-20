@@ -6,6 +6,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
 import type { GestureEvent, MouseCommand, KeyboardCommand } from '@shared/protocol'
+import { MouseCommandSchema, KeyboardCommandSchema, GestureEventSchema } from '../ipc-validators'
 import { VirtualMouse } from './mouse'
 import { VirtualKeyboard } from './keyboard'
 import { MacroEngine } from './macros'
@@ -15,6 +16,11 @@ export class InputIpcHandler {
   private keyboard: VirtualKeyboard
   private macros: MacroEngine
   private enabled = true
+
+  // Stored handler references for proper cleanup
+  private _mouseHandler: ((...args: unknown[]) => void) | null = null
+  private _keyboardHandler: ((...args: unknown[]) => void) | null = null
+  private _gestureHandler: ((...args: unknown[]) => void) | null = null
 
   constructor() {
     this.mouse = new VirtualMouse()
@@ -31,27 +37,44 @@ export class InputIpcHandler {
     ])
 
     this.registerHandlers()
-    console.log('[InputIPC] Initialized — mouse, keyboard, macros ready')
   }
 
   private registerHandlers(): void {
     // Direct mouse commands from renderer
-    ipcMain.on(IPC.MOUSE_COMMAND, (_event, cmd: MouseCommand) => {
+    this._mouseHandler = (_event: unknown, cmd: MouseCommand) => {
       if (!this.enabled) return
-      this.mouse.execute(cmd)
-    })
+      const parsed = MouseCommandSchema.safeParse(cmd)
+      if (!parsed.success) {
+        console.warn('[Input] Invalid MouseCommand, dropping:', parsed.error.message)
+        return
+      }
+      this.mouse.execute(parsed.data as MouseCommand)
+    }
+    ipcMain.on(IPC.MOUSE_COMMAND, this._mouseHandler)
 
     // Direct keyboard commands from renderer
-    ipcMain.on(IPC.KEYBOARD_COMMAND, (_event, cmd: KeyboardCommand) => {
+    this._keyboardHandler = (_event: unknown, cmd: KeyboardCommand) => {
       if (!this.enabled) return
-      this.keyboard.execute(cmd)
-    })
+      const parsed = KeyboardCommandSchema.safeParse(cmd)
+      if (!parsed.success) {
+        console.warn('[Input] Invalid KeyboardCommand, dropping:', parsed.error.message)
+        return
+      }
+      this.keyboard.execute(parsed.data as KeyboardCommand)
+    }
+    ipcMain.on(IPC.KEYBOARD_COMMAND, this._keyboardHandler)
 
     // Gesture events → check for macros, then route to mouse/keyboard
-    ipcMain.on(IPC.GESTURE_EVENT, (_event, gesture: GestureEvent) => {
+    this._gestureHandler = (_event: unknown, gesture: GestureEvent) => {
       if (!this.enabled) return
-      this.handleGesture(gesture)
-    })
+      const parsed = GestureEventSchema.safeParse(gesture)
+      if (!parsed.success) {
+        console.warn('[Input] Invalid GestureEvent, dropping:', parsed.error.message)
+        return
+      }
+      this.handleGesture(parsed.data as GestureEvent)
+    }
+    ipcMain.on(IPC.GESTURE_EVENT, this._gestureHandler)
   }
 
   /** Route a gesture event to the appropriate handler */
@@ -87,12 +110,23 @@ export class InputIpcHandler {
     }
   }
 
-  /** Cleanup all input devices */
+  /** Cleanup all input devices and remove IPC listeners */
   destroy(): void {
     this.mouse.destroy()
     this.keyboard.destroy()
     this.macros.clear()
-    ipcMain.removeAllListeners(IPC.MOUSE_COMMAND)
-    ipcMain.removeAllListeners(IPC.KEYBOARD_COMMAND)
+
+    if (this._mouseHandler) {
+      ipcMain.removeListener(IPC.MOUSE_COMMAND, this._mouseHandler)
+      this._mouseHandler = null
+    }
+    if (this._keyboardHandler) {
+      ipcMain.removeListener(IPC.KEYBOARD_COMMAND, this._keyboardHandler)
+      this._keyboardHandler = null
+    }
+    if (this._gestureHandler) {
+      ipcMain.removeListener(IPC.GESTURE_EVENT, this._gestureHandler)
+      this._gestureHandler = null
+    }
   }
 }

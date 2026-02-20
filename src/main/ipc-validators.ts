@@ -57,3 +57,63 @@ export const CalibrationProfileSchema = z.object({
 // ─── Partial profile update schema (for PROFILE_UPDATE) ─────────
 
 export const PartialCalibrationProfileSchema = CalibrationProfileSchema.partial()
+
+// ─── Landmark / Hand Schemas ────────────────────────────────────
+
+const LandmarkSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  z: z.number()
+})
+
+const HandSchema = z.object({
+  handedness: z.enum(['left', 'right']),
+  landmarks: z.array(LandmarkSchema).length(21),
+  worldLandmarks: z.array(LandmarkSchema).length(21),
+  score: z.number().min(0).max(1)
+})
+
+export const LandmarkFrameSchema = z.object({
+  hands: z.array(HandSchema).max(2),
+  timestamp: z.number().nonnegative(),
+  frameId: z.number().int().nonnegative()
+})
+
+// ─── Gesture Event Schema ───────────────────────────────────────
+
+export const GestureEventSchema = z.object({
+  type: z.enum([
+    'pinch', 'point', 'open_palm', 'twist',
+    'two_hand_pinch', 'flat_drag', 'fist', 'l_shape'
+  ]),
+  phase: z.enum(['onset', 'hold', 'release']),
+  hand: z.enum(['left', 'right']),
+  confidence: z.number().min(0).max(1),
+  position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+  timestamp: z.number().nonnegative(),
+  data: z.record(z.number()).optional()
+})
+
+// ─── Mouse Command Schema ───────────────────────────────────────
+
+export const MouseCommandSchema = z.object({
+  target: z.literal('mouse'),
+  action: z.enum([
+    'move', 'click', 'doubleclick',
+    'drag_start', 'drag_move', 'drag_end', 'scroll'
+  ]),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  deltaX: z.number().optional(),
+  deltaY: z.number().optional(),
+  button: z.enum(['left', 'right', 'middle']).optional()
+})
+
+// ─── Keyboard Command Schema ────────────────────────────────────
+
+export const KeyboardCommandSchema = z.object({
+  target: z.literal('keyboard'),
+  action: z.enum(['press', 'release', 'combo']),
+  key: z.string().optional(),
+  keys: z.array(z.string()).optional()
+})

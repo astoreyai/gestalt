@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { VirtualMouse } from '../mouse'
 import { VirtualKeyboard } from '../keyboard'
 import { MacroEngine } from '../macros'
 import type { MouseCommand, KeyboardCommand } from '@shared/protocol'
+import { IPC } from '@shared/ipc-channels'
 
 describe('VirtualMouse', () => {
   let mouse: VirtualMouse
@@ -445,5 +446,96 @@ describe('MacroEngine', () => {
     macros.setMacro('fist', { action: 'press', key: 'space' })
     const result = macros.getMacro('fist')
     expect(result?.key).toBe('space')
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// InputIpcHandler destroy cleanup
+// ──────────────────────────────────────────────────────────────────────
+
+describe('InputIpcHandler destroy', () => {
+  // Use vi.hoisted so the shared state is available inside the vi.mock factory
+  const { registeredListeners, mockIpcMain } = vi.hoisted(() => {
+    const registeredListeners = new Map<string, Set<(...args: unknown[]) => void>>()
+    const mockIpcMain = {
+      on: vi.fn((channel: string, handler: (...args: unknown[]) => void) => {
+        if (!registeredListeners.has(channel)) {
+          registeredListeners.set(channel, new Set())
+        }
+        registeredListeners.get(channel)!.add(handler)
+      }),
+      removeListener: vi.fn((channel: string, handler: (...args: unknown[]) => void) => {
+        registeredListeners.get(channel)?.delete(handler)
+      }),
+      removeAllListeners: vi.fn((channel: string) => {
+        registeredListeners.delete(channel)
+      })
+    }
+    return { registeredListeners, mockIpcMain }
+  })
+
+  // Mock electron ipcMain before importing InputIpcHandler
+  vi.mock('electron', () => ({
+    ipcMain: mockIpcMain
+  }))
+
+  beforeEach(() => {
+    registeredListeners.clear()
+    mockIpcMain.on.mockClear()
+    mockIpcMain.removeListener.mockClear()
+    mockIpcMain.removeAllListeners.mockClear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should remove GESTURE_EVENT listener on destroy', async () => {
+    // Dynamic import so the mock is active
+    const { InputIpcHandler } = await import('../ipc')
+    const handler = new InputIpcHandler()
+    await handler.init()
+
+    // After init, GESTURE_EVENT should have a registered listener
+    expect(registeredListeners.get(IPC.GESTURE_EVENT)?.size).toBe(1)
+
+    handler.destroy()
+
+    // After destroy, the GESTURE_EVENT listener should be removed
+    expect(registeredListeners.get(IPC.GESTURE_EVENT)?.size ?? 0).toBe(0)
+  })
+
+  it('should remove all three IPC listeners on destroy', async () => {
+    const { InputIpcHandler } = await import('../ipc')
+    const handler = new InputIpcHandler()
+    await handler.init()
+
+    // Verify all three channels have listeners
+    expect(registeredListeners.get(IPC.MOUSE_COMMAND)?.size).toBe(1)
+    expect(registeredListeners.get(IPC.KEYBOARD_COMMAND)?.size).toBe(1)
+    expect(registeredListeners.get(IPC.GESTURE_EVENT)?.size).toBe(1)
+
+    handler.destroy()
+
+    // All listeners should be removed
+    expect(registeredListeners.get(IPC.MOUSE_COMMAND)?.size ?? 0).toBe(0)
+    expect(registeredListeners.get(IPC.KEYBOARD_COMMAND)?.size ?? 0).toBe(0)
+    expect(registeredListeners.get(IPC.GESTURE_EVENT)?.size ?? 0).toBe(0)
+  })
+
+  it('should use removeListener instead of removeAllListeners', async () => {
+    const { InputIpcHandler } = await import('../ipc')
+    const handler = new InputIpcHandler()
+    await handler.init()
+
+    handler.destroy()
+
+    // removeListener should have been called for each channel
+    expect(mockIpcMain.removeListener).toHaveBeenCalledWith(IPC.MOUSE_COMMAND, expect.any(Function))
+    expect(mockIpcMain.removeListener).toHaveBeenCalledWith(IPC.KEYBOARD_COMMAND, expect.any(Function))
+    expect(mockIpcMain.removeListener).toHaveBeenCalledWith(IPC.GESTURE_EVENT, expect.any(Function))
+
+    // removeAllListeners should NOT have been called
+    expect(mockIpcMain.removeAllListeners).not.toHaveBeenCalled()
   })
 })

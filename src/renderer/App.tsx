@@ -2,8 +2,6 @@ import React, { Suspense, useState, useCallback, useEffect, useMemo } from 'reac
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stats, Html } from '@react-three/drei'
 import { useAppStore } from './controller/store'
-import type { Toast } from './controller/store'
-import { ViewSwitcher } from './controller/ViewSwitcher'
 import { GestureOverlay } from './controller/GestureOverlay'
 import { Calibration } from './controller/Calibration'
 import { DataLoader } from './data/DataLoader'
@@ -12,22 +10,19 @@ import { ForceGraph } from './graph/ForceGraph'
 import { PointCloud } from './manifold/PointCloud'
 import { Clusters } from './manifold/Clusters'
 import { HoverCard } from './manifold/HoverCard'
-import { calculateClusterCentroids, findNearestPoint } from './manifold/navigation'
-import { A11Y_COLORS, getTrackingStatusIndicator } from './controller/a11y'
+import { calculateClusterCentroids } from './manifold/navigation'
+import { A11Y_COLORS } from './controller/a11y'
 import { getSelectedNodeInfo, getSelectedPointInfo } from './controller/selection-info'
-import type { GraphData, EmbeddingData, LandmarkFrame } from '@shared/protocol'
-
-/** Severity-based background colors for toast notifications */
-const TOAST_COLORS: Record<Toast['severity'], string> = {
-  error: '#ff6b6b',
-  warning: '#ffd93d',
-  info: '#4a9eff',
-  success: '#6bcb77'
-}
+import { HUD } from './components/HUD'
+import { ToastQueue } from './components/ToastQueue'
+import { ModalContainer } from './components/ModalContainer'
+import { SelectionPanel } from './components/SelectionPanel'
+import { useHandTracker } from './hooks/useHandTracker'
+import type { GraphData, EmbeddingData } from '@shared/protocol'
 
 export function App(): React.ReactElement {
   const {
-    viewMode, setViewMode,
+    viewMode,
     graphData, embeddingData, setGraphData, setEmbeddingData,
     selectedNodeId, hoveredNodeId, selectNode, hoverNode,
     selectedClusterId, selectCluster,
@@ -39,7 +34,20 @@ export function App(): React.ReactElement {
     activeModal, setActiveModal
   } = useAppStore()
 
-  const [landmarkFrame, setLandmarkFrame] = useState<LandmarkFrame | null>(null)
+  // Hand tracking via hook — graceful degradation on failure
+  const { frame: landmarkFrame, error: trackerError } = useHandTracker({
+    enabled: trackingEnabled,
+    smoothingFactor: config.tracking.smoothingFactor,
+    minConfidence: config.tracking.minConfidence
+  })
+
+  // Show toast when tracker fails
+  useEffect(() => {
+    if (trackerError) {
+      addToast(`Hand tracking unavailable: ${trackerError.message}`, 'warning')
+    }
+  }, [trackerError, addToast])
+
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 })
 
   // Cluster info computed from embedding data
@@ -130,6 +138,8 @@ export function App(): React.ReactElement {
     }
   }, [selectNode])
 
+  const handleCloseModal = useCallback(() => setActiveModal(null), [setActiveModal])
+
   return (
     <div
       style={{ width: '100%', height: '100%', position: 'relative' }}
@@ -188,150 +198,19 @@ export function App(): React.ReactElement {
       </Canvas>
 
       {/* HUD -- Top Bar */}
-      <div style={{
-        position: 'absolute',
-        top: 12,
-        left: 12,
-        right: 12,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        pointerEvents: 'none'
-      }}>
-        {/* Status */}
-        <div style={{
-          padding: '6px 14px',
-          background: 'rgba(0,0,0,0.6)',
-          borderRadius: 8,
-          fontSize: 13,
-          display: 'flex',
-          gap: 12,
-          alignItems: 'center',
-          pointerEvents: 'auto'
-        }}>
-          <span
-            role="status"
-            aria-live="polite"
-            style={{ color: trackingEnabled ? A11Y_COLORS.trackingActive : A11Y_COLORS.trackingPaused }}
-          >
-            {getTrackingStatusIndicator(trackingEnabled)} {trackingEnabled ? 'Tracking' : 'Paused'}
-          </span>
-          {hasGraph && (
-            <span style={{ color: A11Y_COLORS.textSecondary }}>
-              {graphData!.nodes.length} nodes
-            </span>
-          )}
-          {hasManifold && (
-            <span style={{ color: A11Y_COLORS.textSecondary }}>
-              {embeddingData!.points.length} points
-            </span>
-          )}
-        </div>
+      <HUD
+        hasGraph={hasGraph}
+        hasManifold={hasManifold}
+        nodeCount={graphData?.nodes.length ?? 0}
+        pointCount={embeddingData?.points.length ?? 0}
+      />
 
-        {/* View Switcher + Controls */}
-        <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
-          <ViewSwitcher
-            currentView={viewMode}
-            onViewChange={setViewMode}
-            graphAvailable={hasGraph}
-            manifoldAvailable={hasManifold}
-          />
-          <button
-            onClick={() => setActiveModal(activeModal === 'dataLoader' ? null : 'dataLoader')}
-            style={buttonStyle}
-            title="Load Data"
-            aria-label="Load data"
-          >
-            Load
-          </button>
-          <button
-            onClick={() => setActiveModal(activeModal === 'settings' ? null : 'settings')}
-            style={buttonStyle}
-            title="Settings"
-            aria-label="Settings"
-          >
-            Settings
-          </button>
-        </div>
-      </div>
-
-      {/* Selection Info -- Graph Node */}
-      {selectedNodeInfo && (
-        <div style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          padding: 16,
-          background: 'rgba(0,0,0,0.8)',
-          borderRadius: 12,
-          border: '1px solid #333',
-          maxWidth: 300
-        }}>
-          <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
-            {selectedNodeInfo.label}
-          </h4>
-          <div style={{ fontSize: 12, color: A11Y_COLORS.textSecondary, marginBottom: 8 }}>
-            <div>{selectedNodeInfo.neighborCount} connection{selectedNodeInfo.neighborCount !== 1 ? 's' : ''}</div>
-            {selectedNodeInfo.metadata && Object.entries(selectedNodeInfo.metadata).map(([key, value]) => (
-              <div key={key}>{key}: {String(value)}</div>
-            ))}
-          </div>
-          {selectedNodeInfo.edges.length > 0 && (
-            <div style={{ fontSize: 11, color: A11Y_COLORS.textSecondary, marginBottom: 8, maxHeight: 100, overflowY: 'auto' }}>
-              {selectedNodeInfo.edges.map(edge => (
-                <div key={edge.targetId}>
-                  {edge.targetLabel ?? edge.targetId}{edge.weight !== undefined ? ` (${edge.weight.toFixed(2)})` : ''}
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            onClick={() => selectNode(null)}
-            style={{ ...buttonStyle, padding: '4px 10px', fontSize: 11 }}
-            aria-label="Deselect node"
-          >
-            Deselect
-          </button>
-        </div>
-      )}
-
-      {/* Selection Info -- Manifold Point (when no graph node matched) */}
-      {!selectedNodeInfo && selectedPointInfo && (
-        <div style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          padding: 16,
-          background: 'rgba(0,0,0,0.8)',
-          borderRadius: 12,
-          border: '1px solid #333',
-          maxWidth: 300
-        }}>
-          <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
-            {selectedPointInfo.label}
-          </h4>
-          <div style={{ fontSize: 12, color: A11Y_COLORS.textSecondary, marginBottom: 8 }}>
-            {selectedPointInfo.clusterLabel && (
-              <div>
-                Cluster: <span style={{ color: selectedPointInfo.clusterColor ?? '#ccc' }}>{selectedPointInfo.clusterLabel}</span>
-              </div>
-            )}
-            <div>
-              Position: ({selectedPointInfo.position.x.toFixed(2)}, {selectedPointInfo.position.y.toFixed(2)}, {selectedPointInfo.position.z.toFixed(2)})
-            </div>
-            {selectedPointInfo.metadata && Object.entries(selectedPointInfo.metadata).map(([key, value]) => (
-              <div key={key}>{key}: {String(value)}</div>
-            ))}
-          </div>
-          <button
-            onClick={() => selectNode(null)}
-            style={{ ...buttonStyle, padding: '4px 10px', fontSize: 11 }}
-            aria-label="Deselect node"
-          >
-            Deselect
-          </button>
-        </div>
-      )}
+      {/* Selection Info Panel */}
+      <SelectionPanel
+        selectedNodeInfo={selectedNodeInfo}
+        selectedPointInfo={selectedPointInfo}
+        onDeselect={() => selectNode(null)}
+      />
 
       {/* Gesture Overlay */}
       <GestureOverlay
@@ -343,120 +222,55 @@ export function App(): React.ReactElement {
       />
 
       {/* Toast Queue */}
-      <div
-        aria-live="polite"
-        role="alert"
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          right: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          zIndex: 200,
-          maxWidth: 400
-        }}
-      >
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            style={{
-              padding: '10px 16px',
-              background: TOAST_COLORS[toast.severity],
-              borderRadius: 8,
-              color: toast.severity === 'warning' ? '#1a1a1a' : '#fff',
-              fontSize: 13,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12
-            }}
-          >
-            <span>{toast.message}</span>
+      <ToastQueue toasts={toasts} onDismiss={removeToast} />
+
+      {/* Modal Container */}
+      <ModalContainer activeModal={activeModal} onClose={handleCloseModal}>
+        {/* Data Loader Modal */}
+        {activeModal === 'dataLoader' && (
+          <>
+            <DataLoader
+              onGraphLoaded={handleGraphLoaded}
+              onEmbeddingLoaded={handleEmbeddingLoaded}
+              onError={handleError}
+            />
             <button
-              onClick={() => removeToast(toast.id)}
-              aria-label="Dismiss notification"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: toast.severity === 'warning' ? '#1a1a1a' : '#fff',
-                fontSize: 16,
-                cursor: 'pointer',
-                padding: '0 2px',
-                lineHeight: 1,
-                flexShrink: 0
-              }}
+              onClick={handleCloseModal}
+              style={{ ...buttonStyle, marginTop: 8, width: '100%' }}
+              aria-label="Cancel"
             >
-              {'\u00D7'}
+              Cancel
             </button>
-          </div>
-        ))}
-      </div>
+          </>
+        )}
 
-      {/* Modal Backdrop */}
-      {activeModal !== null && (
-        <div
-          onClick={() => setActiveModal(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            zIndex: 140
-          }}
-        />
-      )}
-
-      {/* Data Loader Modal */}
-      {activeModal === 'dataLoader' && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          zIndex: 150,
-          width: 400
-        }}>
-          <DataLoader
-            onGraphLoaded={handleGraphLoaded}
-            onEmbeddingLoaded={handleEmbeddingLoaded}
-            onError={handleError}
+        {/* Calibration Wizard */}
+        {activeModal === 'calibration' && (
+          <Calibration
+            landmarkFrame={landmarkFrame}
+            onComplete={(sensitivity) => {
+              updateConfig({
+                gestures: { ...config.gestures, sensitivity }
+              })
+              setCalibrated(true)
+              setActiveModal(null)
+            }}
+            onSkip={() => {
+              setCalibrated(true)
+              setActiveModal(null)
+            }}
           />
-          <button
-            onClick={() => setActiveModal(null)}
-            style={{ ...buttonStyle, marginTop: 8, width: '100%' }}
-            aria-label="Cancel"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+        )}
 
-      {/* Calibration Wizard */}
-      {activeModal === 'calibration' && (
-        <Calibration
-          landmarkFrame={landmarkFrame}
-          onComplete={(sensitivity) => {
-            updateConfig({
-              gestures: { ...config.gestures, sensitivity }
-            })
-            setCalibrated(true)
-            setActiveModal(null)
-          }}
-          onSkip={() => {
-            setCalibrated(true)
-            setActiveModal(null)
-          }}
-        />
-      )}
-
-      {/* Settings Panel */}
-      {activeModal === 'settings' && (
-        <Settings
-          config={config}
-          onConfigChange={updateConfig}
-          onClose={() => setActiveModal(null)}
-        />
-      )}
+        {/* Settings Panel */}
+        {activeModal === 'settings' && (
+          <Settings
+            config={config}
+            onConfigChange={updateConfig}
+            onClose={handleCloseModal}
+          />
+        )}
+      </ModalContainer>
     </div>
   )
 }

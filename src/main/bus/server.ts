@@ -4,6 +4,8 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
+import { randomBytes } from 'crypto'
+import { URL } from 'url'
 import type { BusMessage, BusGestureMessage } from '@shared/bus-protocol'
 import { ProgramRegistry, type RegisteredProgram } from './registry'
 import { GestureFanout } from './fanout'
@@ -13,6 +15,7 @@ export interface BusServerConfig {
   port: number
   heartbeatInterval?: number // ms, default 30000
   connectionTimeout?: number // ms, default 10000
+  authenticate?: boolean // default true — require token auth on connection
 }
 
 /** Maximum payload size in bytes (64KB) */
@@ -33,15 +36,23 @@ export class BusServer {
   private running = false
   /** Per-client rate tracking: clientId -> array of message timestamps */
   private rateLimits: Map<string, number[]> = new Map()
+  /** Authentication token — clients must provide this to connect */
+  private token: string
 
   constructor(config: BusServerConfig) {
     this.config = config
+    this.token = randomBytes(16).toString('hex')
     this.registry = new ProgramRegistry()
     this.fanout = new GestureFanout(this.registry)
     this.connections = new ConnectionManager({
       heartbeatInterval: config.heartbeatInterval ?? 30000,
       connectionTimeout: config.connectionTimeout ?? 10000
     })
+  }
+
+  /** Get the authentication token for this server instance */
+  getToken(): string {
+    return this.token
   }
 
   /** Start the WebSocket server, retrying up to 3 ports on EADDRINUSE */
@@ -72,14 +83,28 @@ export class BusServer {
 
         this.wss.on('listening', () => {
           this.running = true
-          console.log(`[BusServer] Listening on port ${port}`)
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[BusServer] Listening on port ${port}`)
+          }
           resolve()
         })
 
         this.wss.on('connection', (ws, req) => {
+          // Token authentication
+          if (this.config.authenticate !== false) {
+            const url = new URL(req.url ?? '', `http://${req.headers.host ?? 'localhost'}`)
+            const clientToken = url.searchParams.get('token')
+            if (!clientToken || clientToken !== this.token) {
+              ws.close(1008, 'Unauthorized')
+              return
+            }
+          }
+
           const clientId = this.connections.addConnection(ws)
           const ip = req.socket.remoteAddress ?? 'unknown'
-          console.log(`[BusServer] Client connected: ${clientId} from ${ip}`)
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`[BusServer] Client connected: ${clientId} from ${ip}`)
+          }
 
           ws.on('message', (data) => {
             if (this.isRateLimited(clientId)) {
@@ -92,7 +117,9 @@ export class BusServer {
           })
 
           ws.on('close', () => {
-            console.log(`[BusServer] Client disconnected: ${clientId}`)
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`[BusServer] Client disconnected: ${clientId}`)
+            }
             this.registry.unregisterByConnectionId(clientId)
             this.connections.removeConnection(clientId)
             this.rateLimits.delete(clientId)
@@ -160,12 +187,31 @@ export class BusServer {
 
     switch (busMsg.type) {
       case 'register':
+        if (typeof busMsg.program !== 'string' || !busMsg.program || busMsg.program.length > 100) {
+          this.sendError(ws, 'VALIDATION_ERROR', 'Invalid program name')
+          return
+        }
+        if (!Array.isArray(busMsg.capabilities) ||
+            !busMsg.capabilities.every(c => typeof c === 'string')) {
+          this.sendError(ws, 'VALIDATION_ERROR', 'Invalid capabilities array')
+          return
+        }
         this.registry.register(clientId, ws, busMsg.program, busMsg.capabilities)
-        console.log(`[BusServer] Registered program: ${busMsg.program} (${busMsg.capabilities.join(', ')})`)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[BusServer] Registered program: ${busMsg.program} (${busMsg.capabilities.join(', ')})`)
+        }
         this.broadcastStatus()
         break
 
       case 'data':
+        if (typeof busMsg.program !== 'string' || !busMsg.program) {
+          this.sendError(ws, 'VALIDATION_ERROR', 'Invalid program name in data message')
+          return
+        }
+        if (busMsg.payload === undefined || busMsg.payload === null) {
+          this.sendError(ws, 'VALIDATION_ERROR', 'Missing payload in data message')
+          return
+        }
         // Forward data to the appropriate program
         this.fanout.forwardData(busMsg.program, busMsg.payload)
         break
@@ -238,7 +284,9 @@ export class BusServer {
       if (this.wss) {
         this.wss.close(() => {
           this.wss = null
-          console.log('[BusServer] Stopped')
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[BusServer] Stopped')
+          }
           resolve()
         })
       } else {

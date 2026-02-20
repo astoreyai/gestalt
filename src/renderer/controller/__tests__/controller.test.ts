@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { dispatchGesture, type DispatchContext } from '../dispatcher'
-import { useAppStore } from '../store'
+import { useAppStore, useVisualStore, useDataStore, useGestureStore, useConfigStore, useUIStore } from '../store'
 import { GestureType, GesturePhase, type GestureEvent } from '@shared/protocol'
 import type { GraphData, EmbeddingData } from '@shared/protocol'
 import { VIEW_MODE_LABELS } from '../ViewSwitcher'
@@ -465,5 +465,128 @@ describe('Modal Management', () => {
     store.setActiveModal('settings')
     store.setActiveModal('dataLoader')
     expect(useAppStore.getState().activeModal).toBe('dataLoader')
+  })
+})
+
+describe('Store Splitting', () => {
+  beforeEach(() => {
+    useVisualStore.setState({
+      viewMode: 'graph',
+      selectedNodeId: null,
+      hoveredNodeId: null,
+      selectedClusterId: null
+    })
+    useDataStore.setState({
+      graphData: null,
+      embeddingData: null
+    })
+    useGestureStore.setState({
+      activeGesture: null,
+      lastGestureType: null,
+      trackingEnabled: true
+    })
+    useUIStore.setState({
+      error: null,
+      toasts: [],
+      activeModal: null
+    })
+  })
+
+  it('useVisualStore should manage selection independently', () => {
+    useVisualStore.getState().selectNode('node-1')
+    expect(useVisualStore.getState().selectedNodeId).toBe('node-1')
+
+    useVisualStore.getState().hoverNode('node-2')
+    expect(useVisualStore.getState().hoveredNodeId).toBe('node-2')
+
+    useVisualStore.getState().selectCluster(5)
+    expect(useVisualStore.getState().selectedClusterId).toBe(5)
+
+    useVisualStore.getState().setViewMode('manifold')
+    expect(useVisualStore.getState().viewMode).toBe('manifold')
+
+    // Other stores should be unaffected
+    expect(useDataStore.getState().graphData).toBeNull()
+    expect(useGestureStore.getState().activeGesture).toBeNull()
+  })
+
+  it('useDataStore should manage graph/embedding data independently', () => {
+    const graphData = { nodes: [{ id: 'a' }], edges: [] }
+    useDataStore.getState().setGraphData(graphData)
+    expect(useDataStore.getState().graphData).toEqual(graphData)
+
+    const embeddingData = { points: [{ id: 'p1', position: { x: 0, y: 0, z: 0 } }] }
+    useDataStore.getState().setEmbeddingData(embeddingData)
+    expect(useDataStore.getState().embeddingData).toEqual(embeddingData)
+
+    // Other stores should be unaffected
+    expect(useVisualStore.getState().selectedNodeId).toBeNull()
+  })
+
+  it('useGestureStore should manage gesture state independently', () => {
+    const gesture: GestureEvent = {
+      type: GestureType.Pinch,
+      phase: GesturePhase.Onset,
+      hand: 'right',
+      confidence: 0.9,
+      position: { x: 0, y: 0, z: 0 },
+      timestamp: Date.now()
+    }
+    useGestureStore.getState().setActiveGesture(gesture)
+    expect(useGestureStore.getState().activeGesture).toBe(gesture)
+    expect(useGestureStore.getState().lastGestureType).toBe(GestureType.Pinch)
+
+    useGestureStore.getState().setTrackingEnabled(false)
+    expect(useGestureStore.getState().trackingEnabled).toBe(false)
+
+    // Other stores should be unaffected
+    expect(useVisualStore.getState().selectedNodeId).toBeNull()
+    expect(useDataStore.getState().graphData).toBeNull()
+  })
+
+  it('useUIStore should manage toasts independently', () => {
+    useUIStore.getState().addToast('Test message', 'info')
+    expect(useUIStore.getState().toasts).toHaveLength(1)
+    expect(useUIStore.getState().toasts[0].message).toBe('Test message')
+
+    useUIStore.getState().setError('An error')
+    expect(useUIStore.getState().error).toBe('An error')
+
+    useUIStore.getState().setActiveModal('settings')
+    expect(useUIStore.getState().activeModal).toBe('settings')
+
+    // Other stores should be unaffected
+    expect(useVisualStore.getState().selectedNodeId).toBeNull()
+  })
+
+  it('useAppStore facade should combine all stores', () => {
+    // Set state through individual stores
+    useVisualStore.getState().selectNode('n1')
+    useGestureStore.getState().setTrackingEnabled(false)
+    useUIStore.getState().setError('err')
+
+    // Read through facade (static getState, not hook)
+    const combined = useAppStore.getState()
+    expect(combined.selectedNodeId).toBe('n1')
+    expect(combined.trackingEnabled).toBe(false)
+    expect(combined.error).toBe('err')
+  })
+
+  it('useAppStore facade setGraphData should also set viewMode to graph', () => {
+    useVisualStore.getState().setViewMode('manifold')
+    const facade = useAppStore.getState()
+    facade.setGraphData({ nodes: [{ id: 'x' }], edges: [] })
+
+    expect(useDataStore.getState().graphData).not.toBeNull()
+    expect(useVisualStore.getState().viewMode).toBe('graph')
+  })
+
+  it('useAppStore facade setEmbeddingData should also set viewMode to manifold', () => {
+    useVisualStore.getState().setViewMode('graph')
+    const facade = useAppStore.getState()
+    facade.setEmbeddingData({ points: [{ id: 'p1', position: { x: 0, y: 0, z: 0 } }] })
+
+    expect(useDataStore.getState().embeddingData).not.toBeNull()
+    expect(useVisualStore.getState().viewMode).toBe('manifold')
   })
 })

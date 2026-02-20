@@ -649,3 +649,131 @@ describe('Node size safety', () => {
     expect(clampNodeSize(undefined)).toBe(DEFAULT_SIZE)
   })
 })
+
+// ──────────────────────────────────────────────────────────────────────
+// Force Layout Tests
+// ──────────────────────────────────────────────────────────────────────
+
+import { createForceSimulation, type SimulationConfig } from '../force-layout'
+
+describe('Force Layout', () => {
+  function makeConfig(nodeCount: number, edgeCount: number): SimulationConfig {
+    const nodes = Array.from({ length: nodeCount }, (_, i) => ({
+      id: `n${i}`,
+      x: (Math.random() - 0.5) * 50,
+      y: (Math.random() - 0.5) * 50,
+      z: (Math.random() - 0.5) * 50
+    }))
+    const edges: SimulationConfig['edges'] = []
+    for (let i = 0; i < edgeCount && i + 1 < nodeCount; i++) {
+      edges.push({
+        source: `n${i}`,
+        target: `n${i + 1}`,
+        weight: 0.5 + Math.random() * 0.5
+      })
+    }
+    return { nodes, edges }
+  }
+
+  it('should create simulation with correct node count', () => {
+    const config = makeConfig(10, 5)
+    const sim = createForceSimulation(config)
+    const result = sim.tick()
+    expect(result.positions.size).toBe(10)
+    sim.stop()
+  })
+
+  it('should converge positions over multiple ticks', () => {
+    const config: SimulationConfig = {
+      nodes: [
+        { id: 'a', x: -100, y: 0, z: 0 },
+        { id: 'b', x: 100, y: 0, z: 0 }
+      ],
+      edges: [{ source: 'a', target: 'b', weight: 1.0 }]
+    }
+    const sim = createForceSimulation(config)
+
+    // Run initial tick
+    const first = sim.tick()
+    expect(first.alpha).toBeGreaterThan(0)
+
+    // Run many ticks to converge
+    let result = first
+    for (let i = 0; i < 300; i++) {
+      result = sim.tick()
+      if (result.done) break
+    }
+
+    // Alpha should have decreased significantly
+    expect(result.alpha).toBeLessThan(first.alpha)
+
+    // Connected nodes should have moved closer together
+    const posA = result.positions.get('a')!
+    const posB = result.positions.get('b')!
+    const finalDist = Math.sqrt(
+      (posA.x - posB.x) ** 2 + (posA.y - posB.y) ** 2 + (posA.z - posB.z) ** 2
+    )
+    // Initial distance was 200, should be significantly closer
+    expect(finalDist).toBeLessThan(200)
+
+    sim.stop()
+  })
+
+  it('should respect edge weights in layout', () => {
+    // Three nodes in a line: A--B--C
+    // A-B has high weight (strong attraction), B-C has low weight (weak attraction)
+    const config: SimulationConfig = {
+      nodes: [
+        { id: 'a', x: -50, y: 0, z: 0 },
+        { id: 'b', x: 0, y: 0, z: 0 },
+        { id: 'c', x: 50, y: 0, z: 0 }
+      ],
+      edges: [
+        { source: 'a', target: 'b', weight: 1.0 },
+        { source: 'b', target: 'c', weight: 0.1 }
+      ]
+    }
+    const sim = createForceSimulation(config)
+
+    let result
+    for (let i = 0; i < 300; i++) {
+      result = sim.tick()
+      if (result.done) break
+    }
+    result = result!
+
+    const posA = result.positions.get('a')!
+    const posB = result.positions.get('b')!
+    const posC = result.positions.get('c')!
+
+    const distAB = Math.sqrt(
+      (posA.x - posB.x) ** 2 + (posA.y - posB.y) ** 2 + (posA.z - posB.z) ** 2
+    )
+    const distBC = Math.sqrt(
+      (posB.x - posC.x) ** 2 + (posB.y - posC.y) ** 2 + (posB.z - posC.z) ** 2
+    )
+
+    // Strong weight edge (A-B) should result in shorter distance than weak weight edge (B-C)
+    // The link strength formula is 0.3 + w * 0.7, so weight 1.0 => 1.0, weight 0.1 => 0.37
+    expect(distAB).toBeLessThan(distBC)
+
+    sim.stop()
+  })
+
+  it('should stop simulation cleanly', () => {
+    const config = makeConfig(5, 3)
+    const sim = createForceSimulation(config)
+
+    // Tick once to verify it works
+    const before = sim.tick()
+    expect(before.positions.size).toBe(5)
+
+    // Stop
+    sim.stop()
+
+    // After stop, tick should return done=true with alpha 0
+    const after = sim.tick()
+    expect(after.done).toBe(true)
+    expect(after.alpha).toBe(0)
+  })
+})
