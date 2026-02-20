@@ -1,0 +1,27 @@
+{
+  "$schema": "./keymap-schema.json",
+  "description": "Default gesture-to-key mappings",
+  "mappings": {
+    "l_shape": {
+      "action": "combo",
+      "keys": ["ctrl", "shift", "t"],
+      "description": "Open new terminal tab"
+    },
+    "fist": {
+      "action": "press",
+      "key": "escape",
+      "description": "Cancel / Escape"
+    },
+    "open_palm": {
+      "action": "combo",
+      "keys": ["super"],
+      "description": "Show activities / app launcher"
+    }
+  },
+  "mouse": {
+    "point": "move",
+    "pinch": "click",
+    "pinch_hold": "drag",
+    "two_hand_pinch": "scroll"
+  }
+}

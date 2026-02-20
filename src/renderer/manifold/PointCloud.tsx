@@ -1,0 +1,243 @@
+/**
+ * PointCloud component for rendering embedding points in 3D.
+ * Uses THREE.Points with BufferGeometry for high-performance rendering
+ * of 5K+ points at 60 FPS.
+ */
+
+import React, { useRef, useMemo, useCallback } from 'react'
+import { useFrame, useThree, ThreeEvent } from '@react-three/fiber'
+import * as THREE from 'three'
+import type { EmbeddingData, EmbeddingPoint } from '@shared/protocol'
+import { CLUSTER_COLORS } from './types'
+
+export interface PointCloudProps {
+  /** Embedding data containing all points */
+  data: EmbeddingData
+  /** Currently selected cluster (highlighted) */
+  selectedCluster?: number
+  /** ID of the currently hovered point */
+  hoveredPointId?: string
+  /** Called when a point is hovered (null when nothing hovered) */
+  onPointHover?: (point: EmbeddingPoint | null) => void
+  /** Called when a point is clicked */
+  onPointClick?: (point: EmbeddingPoint) => void
+  /** Base point size in pixels */
+  pointSize?: number
+  /** Whether to encode density as point size */
+  sizeByDensity?: boolean
+}
+
+/** Parse hex color string to RGB components in [0, 1] */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!result) return { r: 1, g: 1, b: 1 }
+  return {
+    r: parseInt(result[1], 16) / 255,
+    g: parseInt(result[2], 16) / 255,
+    b: parseInt(result[3], 16) / 255
+  }
+}
+
+/** Get the color for a given cluster ID */
+function getClusterColor(clusterId: number | undefined, data: EmbeddingData): string {
+  if (clusterId === undefined) return '#ffffff'
+  // Check if the cluster has a custom color in the data
+  const cluster = data.clusters?.find((c) => c.id === clusterId)
+  if (cluster?.color) return cluster.color
+  // Fall back to categorical palette
+  const idx = clusterId >= 0 ? clusterId % CLUSTER_COLORS.length : 0
+  return CLUSTER_COLORS[idx]
+}
+
+export function PointCloud({
+  data,
+  selectedCluster,
+  hoveredPointId,
+  onPointHover,
+  onPointClick,
+  pointSize = 4.0,
+  sizeByDensity = false
+}: PointCloudProps): React.ReactElement | null {
+  const pointsRef = useRef<THREE.Points>(null)
+  const raycasterRef = useRef(new THREE.Raycaster())
+  const { camera, pointer } = useThree()
+
+  // Index map for fast lookups from buffer index to EmbeddingPoint
+  const pointIndex = useMemo(() => {
+    const map = new Map<number, EmbeddingPoint>()
+    data.points.forEach((p, i) => map.set(i, p))
+    return map
+  }, [data.points])
+
+  // Build buffer attributes
+  const { positions, colors, sizes } = useMemo(() => {
+    const count = data.points.length
+    const pos = new Float32Array(count * 3)
+    const col = new Float32Array(count * 3)
+    const sz = new Float32Array(count)
+
+    for (let i = 0; i < count; i++) {
+      const point = data.points[i]
+      const i3 = i * 3
+
+      // Position
+      pos[i3] = point.position.x
+      pos[i3 + 1] = point.position.y
+      pos[i3 + 2] = point.position.z
+
+      // Color by cluster
+      const hex = getClusterColor(point.clusterId, data)
+      const rgb = hexToRgb(hex)
+
+      // Dim non-selected clusters when a cluster is selected
+      const dimFactor =
+        selectedCluster !== undefined && point.clusterId !== selectedCluster ? 0.25 : 1.0
+
+      col[i3] = rgb.r * dimFactor
+      col[i3 + 1] = rgb.g * dimFactor
+      col[i3 + 2] = rgb.b * dimFactor
+
+      // Size
+      sz[i] = pointSize
+    }
+
+    return { positions: pos, colors: col, sizes: sz }
+  }, [data, selectedCluster, pointSize])
+
+  // Update colors for hover highlight without full rebuild
+  useFrame(() => {
+    if (!pointsRef.current) return
+    const geom = pointsRef.current.geometry
+    const colorAttr = geom.getAttribute('color') as THREE.BufferAttribute
+    const sizeAttr = geom.getAttribute('size') as THREE.BufferAttribute
+
+    if (!colorAttr || !sizeAttr) return
+
+    let needsColorUpdate = false
+    let needsSizeUpdate = false
+
+    for (let i = 0; i < data.points.length; i++) {
+      const point = data.points[i]
+      const isHovered = point.id === hoveredPointId
+      const i3 = i * 3
+
+      if (isHovered) {
+        // Brighten hovered point
+        colorAttr.array[i3] = 1.0
+        colorAttr.array[i3 + 1] = 1.0
+        colorAttr.array[i3 + 2] = 1.0
+        sizeAttr.array[i] = pointSize * 2.0
+        needsColorUpdate = true
+        needsSizeUpdate = true
+      } else {
+        // Restore base color
+        const hex = getClusterColor(point.clusterId, data)
+        const rgb = hexToRgb(hex)
+        const dimFactor =
+          selectedCluster !== undefined && point.clusterId !== selectedCluster ? 0.25 : 1.0
+
+        const baseR = rgb.r * dimFactor
+        const baseG = rgb.g * dimFactor
+        const baseB = rgb.b * dimFactor
+
+        if (
+          Math.abs(colorAttr.array[i3] - baseR) > 0.01 ||
+          Math.abs(colorAttr.array[i3 + 1] - baseG) > 0.01 ||
+          Math.abs(colorAttr.array[i3 + 2] - baseB) > 0.01
+        ) {
+          colorAttr.array[i3] = baseR
+          colorAttr.array[i3 + 1] = baseG
+          colorAttr.array[i3 + 2] = baseB
+          needsColorUpdate = true
+        }
+
+        if (Math.abs(sizeAttr.array[i] - pointSize) > 0.01) {
+          sizeAttr.array[i] = pointSize
+          needsSizeUpdate = true
+        }
+      }
+    }
+
+    if (needsColorUpdate) colorAttr.needsUpdate = true
+    if (needsSizeUpdate) sizeAttr.needsUpdate = true
+  })
+
+  // Raycasting for hover and click
+  const handlePointerMove = useCallback(
+    (event: ThreeEvent<PointerEvent>) => {
+      if (!pointsRef.current || !onPointHover) return
+
+      raycasterRef.current.setFromCamera(pointer, camera)
+      raycasterRef.current.params.Points = { threshold: 0.5 }
+
+      const intersects = raycasterRef.current.intersectObject(pointsRef.current)
+      if (intersects.length > 0 && intersects[0].index !== undefined) {
+        const point = pointIndex.get(intersects[0].index)
+        if (point) {
+          onPointHover(point)
+          return
+        }
+      }
+      onPointHover(null)
+    },
+    [camera, pointer, onPointHover, pointIndex]
+  )
+
+  const handleClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      if (!pointsRef.current || !onPointClick) return
+
+      raycasterRef.current.setFromCamera(pointer, camera)
+      raycasterRef.current.params.Points = { threshold: 0.5 }
+
+      const intersects = raycasterRef.current.intersectObject(pointsRef.current)
+      if (intersects.length > 0 && intersects[0].index !== undefined) {
+        const point = pointIndex.get(intersects[0].index)
+        if (point) {
+          onPointClick(point)
+        }
+      }
+    },
+    [camera, pointer, onPointClick, pointIndex]
+  )
+
+  if (data.points.length === 0) return null
+
+  return (
+    <points
+      ref={pointsRef}
+      onPointerMove={handlePointerMove}
+      onClick={handleClick}
+    >
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          array={positions}
+          count={data.points.length}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="attributes-color"
+          array={colors}
+          count={data.points.length}
+          itemSize={3}
+        />
+        <bufferAttribute
+          attach="attributes-size"
+          array={sizes}
+          count={data.points.length}
+          itemSize={1}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        vertexColors
+        size={pointSize}
+        sizeAttenuation
+        transparent
+        opacity={0.85}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  )
+}

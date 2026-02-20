@@ -1,0 +1,249 @@
+/**
+ * WebSocket server for the connector bus.
+ * External programs connect to receive gesture events and send data.
+ */
+
+import { WebSocketServer, WebSocket } from 'ws'
+import type { BusMessage, BusGestureMessage } from '@shared/bus-protocol'
+import { ProgramRegistry, type RegisteredProgram } from './registry'
+import { GestureFanout } from './fanout'
+import { ConnectionManager } from './connections'
+
+export interface BusServerConfig {
+  port: number
+  heartbeatInterval?: number // ms, default 30000
+  connectionTimeout?: number // ms, default 10000
+}
+
+/** Maximum payload size in bytes (64KB) */
+const MAX_PAYLOAD = 64 * 1024
+
+/** Maximum messages per client per second */
+const RATE_LIMIT = 100
+
+/** Rate limit window in milliseconds */
+const RATE_WINDOW_MS = 1000
+
+export class BusServer {
+  private wss: WebSocketServer | null = null
+  private registry: ProgramRegistry
+  private fanout: GestureFanout
+  private connections: ConnectionManager
+  private config: BusServerConfig
+  private running = false
+  /** Per-client rate tracking: clientId -> array of message timestamps */
+  private rateLimits: Map<string, number[]> = new Map()
+
+  constructor(config: BusServerConfig) {
+    this.config = config
+    this.registry = new ProgramRegistry()
+    this.fanout = new GestureFanout(this.registry)
+    this.connections = new ConnectionManager({
+      heartbeatInterval: config.heartbeatInterval ?? 30000,
+      connectionTimeout: config.connectionTimeout ?? 10000
+    })
+  }
+
+  /** Start the WebSocket server, retrying up to 3 ports on EADDRINUSE */
+  async start(): Promise<void> {
+    let lastError: Error | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this._tryStart(this.config.port + attempt)
+        return
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        if (!lastError.message.includes('EADDRINUSE')) throw lastError
+        console.warn(`[BusServer] Port ${this.config.port + attempt} in use, retrying...`)
+      }
+    }
+    throw lastError!
+  }
+
+  /** Attempt to start the WebSocket server on a specific port */
+  private _tryStart(port: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        this.wss = new WebSocketServer({
+          port,
+          host: '127.0.0.1',
+          maxPayload: MAX_PAYLOAD
+        })
+
+        this.wss.on('listening', () => {
+          this.running = true
+          console.log(`[BusServer] Listening on port ${port}`)
+          resolve()
+        })
+
+        this.wss.on('connection', (ws, req) => {
+          const clientId = this.connections.addConnection(ws)
+          const ip = req.socket.remoteAddress ?? 'unknown'
+          console.log(`[BusServer] Client connected: ${clientId} from ${ip}`)
+
+          ws.on('message', (data) => {
+            if (this.isRateLimited(clientId)) {
+              console.warn(`[BusServer] Rate limit exceeded for ${clientId}, disconnecting`)
+              this.sendError(ws, 'RATE_LIMITED', 'Too many messages')
+              ws.close(1008, 'Rate limit exceeded')
+              return
+            }
+            this.handleMessage(clientId, ws, data.toString())
+          })
+
+          ws.on('close', () => {
+            console.log(`[BusServer] Client disconnected: ${clientId}`)
+            this.registry.unregisterByConnectionId(clientId)
+            this.connections.removeConnection(clientId)
+            this.rateLimits.delete(clientId)
+          })
+
+          ws.on('error', (err) => {
+            console.error(`[BusServer] Client error ${clientId}:`, err.message)
+          })
+        })
+
+        this.wss.on('error', (err) => {
+          console.error('[BusServer] Server error:', err)
+          reject(err)
+        })
+
+        // Start heartbeat monitoring
+        this.connections.startHeartbeat()
+      } catch (err) {
+        reject(err)
+      }
+    })
+  }
+
+  /**
+   * Check if a client has exceeded the message rate limit.
+   * Returns true if the client should be disconnected.
+   */
+  private isRateLimited(clientId: string): boolean {
+    const now = Date.now()
+    let timestamps = this.rateLimits.get(clientId)
+    if (!timestamps) {
+      timestamps = []
+      this.rateLimits.set(clientId, timestamps)
+    }
+
+    // Remove timestamps outside the rate window
+    const cutoff = now - RATE_WINDOW_MS
+    while (timestamps.length > 0 && timestamps[0] <= cutoff) {
+      timestamps.shift()
+    }
+
+    // Add current timestamp
+    timestamps.push(now)
+
+    // Check if over limit
+    return timestamps.length > RATE_LIMIT
+  }
+
+  /** Handle an incoming message from a client */
+  private handleMessage(clientId: string, ws: WebSocket, raw: string): void {
+    let msg: unknown
+    try {
+      msg = JSON.parse(raw)
+    } catch {
+      this.sendError(ws, 'PARSE_ERROR', 'Invalid JSON message')
+      return
+    }
+
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg) || !('type' in msg)) {
+      this.sendError(ws, 'VALIDATION_ERROR', 'Missing message type')
+      return
+    }
+
+    const busMsg = msg as BusMessage
+
+    switch (busMsg.type) {
+      case 'register':
+        this.registry.register(clientId, ws, busMsg.program, busMsg.capabilities)
+        console.log(`[BusServer] Registered program: ${busMsg.program} (${busMsg.capabilities.join(', ')})`)
+        this.broadcastStatus()
+        break
+
+      case 'data':
+        // Forward data to the appropriate program
+        this.fanout.forwardData(busMsg.program, busMsg.payload)
+        break
+
+      case 'ping':
+        ws.send(JSON.stringify({ type: 'pong', timestamp: busMsg.timestamp }))
+        this.connections.markAlive(clientId)
+        break
+
+      default:
+        this.sendError(ws, 'UNKNOWN_TYPE', `Unknown message type: ${(busMsg as BusMessage).type}`)
+    }
+  }
+
+  /** Broadcast a gesture event to all registered programs */
+  broadcastGesture(gesture: BusGestureMessage): void {
+    if (!this.running) return
+    this.fanout.broadcastGesture(gesture)
+  }
+
+  /** Send error to a specific client */
+  private sendError(ws: WebSocket, code: string, message: string): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'error', code, message }))
+    }
+  }
+
+  /** Broadcast current status to all connected clients */
+  broadcastStatus(): void {
+    const programs = this.registry.listPrograms()
+    const statusMsg = JSON.stringify({
+      type: 'status',
+      programs: programs.map(p => ({
+        name: p.name,
+        capabilities: p.capabilities,
+        connectedAt: p.connectedAt
+      }))
+    })
+
+    this.wss?.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(statusMsg)
+      }
+    })
+  }
+
+  /** Get list of connected programs */
+  getPrograms(): RegisteredProgram[] {
+    return this.registry.listPrograms()
+  }
+
+  /** Check if server is running */
+  isRunning(): boolean {
+    return this.running
+  }
+
+  /** Get server port */
+  getPort(): number {
+    return this.config.port
+  }
+
+  /** Stop the WebSocket server */
+  stop(): Promise<void> {
+    return new Promise((resolve) => {
+      this.connections.stopHeartbeat()
+      this.registry.clear()
+      this.rateLimits.clear()
+      this.running = false
+
+      if (this.wss) {
+        this.wss.close(() => {
+          this.wss = null
+          console.log('[BusServer] Stopped')
+          resolve()
+        })
+      } else {
+        resolve()
+      }
+    })
+  }
+}
