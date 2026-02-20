@@ -232,8 +232,8 @@ describe('Bus Protocol', () => {
   it('should create a gesture message', () => {
     const msg: BusGestureMessage = {
       type: 'gesture',
-      name: 'pinch',
-      phase: 'onset',
+      name: GestureType.Pinch,
+      phase: GesturePhase.Onset,
       hand: 'right',
       position: [0.5, 0.3, 0.1],
       confidence: 0.95

@@ -531,11 +531,11 @@ describe('Integration: Full Pipeline', () => {
 
       fanout.broadcastGesture({
         type: 'gesture',
-        name: 'pinch',
+        name: GestureType.Pinch,
         hand: 'right',
         position: [0.5, 0.5, 0.1],
         confidence: 0.9,
-        phase: 'onset'
+        phase: GesturePhase.Onset
       })
 
       // Pinch maps to 'select' capability
@@ -560,11 +560,11 @@ describe('Integration: Full Pipeline', () => {
 
       fanout.broadcastGesture({
         type: 'gesture',
-        name: 'pinch',
+        name: GestureType.Pinch,
         hand: 'right',
         position: [0.5, 0.5, 0],
         confidence: 0.9,
-        phase: 'onset'
+        phase: GesturePhase.Onset
       })
 
       // Pinch → select/click, not zoom → should not receive
@@ -585,11 +585,11 @@ describe('Integration: Full Pipeline', () => {
 
       fanout.broadcastGesture({
         type: 'gesture',
-        name: 'twist',
+        name: GestureType.Twist,
         hand: 'right',
         position: [0.5, 0.5, 0],
         confidence: 0.8,
-        phase: 'hold'
+        phase: GesturePhase.Hold
       })
 
       expect(received.length).toBe(1)
@@ -834,6 +834,197 @@ describe('Integration: Full Pipeline', () => {
         expect(e.position).toHaveProperty('z')
         expect(typeof e.timestamp).toBe('number')
       }
+    })
+  })
+
+  // ─── P1-26: Dispatcher+Engine integration ───────────────────────────
+  // Verifies that gesture data values (rotation, handDistance) propagate
+  // through the engine and dispatcher without being zeroed out.
+  // This test would have caught P0-1 (twist angle zeroed) and
+  // P0-2 (two-hand-pinch delta zeroed).
+
+  describe('Dispatcher+Engine: gesture data propagation (P1-26)', () => {
+    /**
+     * Create twist landmarks by setting up a hand whose MIDDLE_MCP -> WRIST
+     * vector rotates between frames. The GestureEngine tracks hand orientation
+     * via computeHandAngle = atan2(middleMcp.y - wrist.y, middleMcp.x - wrist.x).
+     * We vary the middleMcp position across frames to induce rotation > twistMinRotation.
+     */
+    function makeTwistLandmarks(angle: number): Landmark[] {
+      const lm = makeOpenPalmLandmarks()
+      // Wrist is at (0.5, 0.7, 0). Place MIDDLE_MCP at a given angle from wrist.
+      const radius = 0.17 // approximate distance from wrist to MIDDLE_MCP in the default
+      lm[LANDMARK.MIDDLE_MCP] = {
+        x: 0.5 + radius * Math.cos(angle),
+        y: 0.7 + radius * Math.sin(angle),
+        z: 0
+      }
+      return lm
+    }
+
+    it('should propagate twist rotation through engine to dispatcher (P0-1 regression)', () => {
+      // Use very permissive config: 1 onset frame, 0ms hold, 0ms cooldown, low twist threshold
+      const engine = new GestureEngine({
+        minOnsetFrames: 1,
+        minHoldDuration: 0,
+        cooldownDuration: 0,
+        twistMinRotation: 0.1,
+        sensitivity: 1.0
+      })
+      const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
+
+      // Frame 1: establish baseline orientation (angle = -pi/2, pointing down)
+      const baseAngle = -Math.PI / 2
+      const hand1 = makeHand(makeTwistLandmarks(baseAngle))
+      engine.processFrame(makeFrame([hand1], 1000, 1))
+
+      // Frame 2: rotate hand by 0.5 radians (well above twistMinRotation of 0.1)
+      const rotatedAngle = baseAngle + 0.5
+      const hand2 = makeHand(makeTwistLandmarks(rotatedAngle))
+      const events2 = engine.processFrame(makeFrame([hand2], 1050, 2))
+
+      // The twist should be detected as Onset on frame 2
+      const twistOnset = events2.find(e => e.type === GestureType.Twist && e.phase === GesturePhase.Onset)
+      expect(twistOnset).toBeDefined()
+      expect(twistOnset!.data).toBeDefined()
+      expect(twistOnset!.data!.rotation).not.toBe(0)
+
+      // Frame 3: keep rotating to stay detected -> should transition to Hold
+      const hand3 = makeHand(makeTwistLandmarks(rotatedAngle + 0.5))
+      const events3 = engine.processFrame(makeFrame([hand3], 1100, 3))
+
+      const twistHold = events3.find(e => e.type === GestureType.Twist && e.phase === GesturePhase.Hold)
+      expect(twistHold).toBeDefined()
+      expect(twistHold!.data).toBeDefined()
+      expect(twistHold!.data!.rotation).not.toBe(0)
+
+      // Now dispatch the Hold event through dispatchGesture
+      const action = dispatchGesture(twistHold!, ctx)
+
+      expect(action.type).toBe('rotate')
+      // THE KEY ASSERTION: angle must match the gesture rotation, and must NOT be zero
+      expect(action.params.angle).toBe(twistHold!.data!.rotation)
+      expect(action.params.angle).not.toBe(0)
+      expect(action.params.axis).toBe('y')
+    })
+
+    it('should propagate two-hand-pinch handDistance through engine to dispatcher (P0-2 regression)', () => {
+      const engine = new GestureEngine({
+        minOnsetFrames: 1,
+        minHoldDuration: 0,
+        cooldownDuration: 0,
+        sensitivity: 1.0
+      })
+      const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
+
+      // Create two pinching hands with thumb tips far apart (different x positions)
+      const leftLandmarks = makePinchLandmarks()
+      const rightLandmarks = makePinchLandmarks()
+
+      // Shift left hand's thumb tip to left side, right hand's to right side
+      // so handDistance (distance between THUMB_TIPs) is significant
+      leftLandmarks[LANDMARK.THUMB_TIP] = { x: 0.2, y: 0.33, z: 0 }
+      leftLandmarks[LANDMARK.INDEX_TIP] = { x: 0.2, y: 0.33, z: 0.01 }
+      rightLandmarks[LANDMARK.THUMB_TIP] = { x: 0.8, y: 0.33, z: 0 }
+      rightLandmarks[LANDMARK.INDEX_TIP] = { x: 0.8, y: 0.33, z: 0.01 }
+
+      const leftHand = makeHand(leftLandmarks, 'left')
+      const rightHand = makeHand(rightLandmarks, 'right')
+
+      // Frame 1: onset
+      const frame1 = makeFrame([leftHand, rightHand], 1000, 1)
+      const events1 = engine.processFrame(frame1)
+
+      const twoHandOnset = events1.find(
+        e => e.type === GestureType.TwoHandPinch && e.phase === GesturePhase.Onset
+      )
+      expect(twoHandOnset).toBeDefined()
+      expect(twoHandOnset!.data).toBeDefined()
+      expect(twoHandOnset!.data!.handDistance).toBeGreaterThan(0)
+
+      // Frame 2: sustain for Hold
+      const frame2 = makeFrame([leftHand, rightHand], 1050, 2)
+      const events2 = engine.processFrame(frame2)
+
+      const twoHandHold = events2.find(
+        e => e.type === GestureType.TwoHandPinch && e.phase === GesturePhase.Hold
+      )
+      expect(twoHandHold).toBeDefined()
+      expect(twoHandHold!.data).toBeDefined()
+      expect(twoHandHold!.data!.handDistance).toBeGreaterThan(0)
+
+      // Dispatch the Hold event
+      const action = dispatchGesture(twoHandHold!, ctx)
+
+      expect(action.type).toBe('zoom')
+      // THE KEY ASSERTION: delta must match handDistance, and must NOT be zero
+      expect(action.params.delta).toBe(twoHandHold!.data!.handDistance)
+      expect(action.params.delta).not.toBe(0)
+    })
+
+    it('should propagate twist data in manifold mode as well', () => {
+      const engine = new GestureEngine({
+        minOnsetFrames: 1,
+        minHoldDuration: 0,
+        cooldownDuration: 0,
+        twistMinRotation: 0.1,
+        sensitivity: 1.0
+      })
+      const ctx: DispatchContext = { viewMode: 'manifold', selectedNodeId: null, selectedClusterId: null }
+
+      const baseAngle = -Math.PI / 2
+      const hand1 = makeHand(makeTwistLandmarks(baseAngle))
+      engine.processFrame(makeFrame([hand1], 1000, 1))
+
+      const hand2 = makeHand(makeTwistLandmarks(baseAngle + 0.5))
+      engine.processFrame(makeFrame([hand2], 1050, 2))
+
+      const hand3 = makeHand(makeTwistLandmarks(baseAngle + 1.0))
+      const events3 = engine.processFrame(makeFrame([hand3], 1100, 3))
+
+      const twistHold = events3.find(e => e.type === GestureType.Twist && e.phase === GesturePhase.Hold)
+      expect(twistHold).toBeDefined()
+
+      const action = dispatchGesture(twistHold!, ctx)
+      expect(action.type).toBe('rotate')
+      expect(action.params.angle).toBe(twistHold!.data!.rotation)
+      expect(action.params.angle).not.toBe(0)
+    })
+
+    it('should propagate two-hand-pinch data in split mode (right hand)', () => {
+      const engine = new GestureEngine({
+        minOnsetFrames: 1,
+        minHoldDuration: 0,
+        cooldownDuration: 0,
+        sensitivity: 1.0
+      })
+      // In split mode, right hand dispatches to manifold
+      const ctx: DispatchContext = { viewMode: 'split', selectedNodeId: null, selectedClusterId: null }
+
+      const leftLandmarks = makePinchLandmarks()
+      const rightLandmarks = makePinchLandmarks()
+      leftLandmarks[LANDMARK.THUMB_TIP] = { x: 0.15, y: 0.33, z: 0 }
+      leftLandmarks[LANDMARK.INDEX_TIP] = { x: 0.15, y: 0.33, z: 0.01 }
+      rightLandmarks[LANDMARK.THUMB_TIP] = { x: 0.85, y: 0.33, z: 0 }
+      rightLandmarks[LANDMARK.INDEX_TIP] = { x: 0.85, y: 0.33, z: 0.01 }
+
+      const leftHand = makeHand(leftLandmarks, 'left')
+      const rightHand = makeHand(rightLandmarks, 'right')
+
+      // Frame 1: onset, Frame 2: hold
+      engine.processFrame(makeFrame([leftHand, rightHand], 1000, 1))
+      const events2 = engine.processFrame(makeFrame([leftHand, rightHand], 1050, 2))
+
+      const twoHandHold = events2.find(
+        e => e.type === GestureType.TwoHandPinch && e.phase === GesturePhase.Hold
+      )
+      expect(twoHandHold).toBeDefined()
+
+      // TwoHandPinch uses hand='right', so in split mode -> manifold dispatch
+      const action = dispatchGesture(twoHandHold!, ctx)
+      expect(action.type).toBe('zoom')
+      expect(action.params.delta).toBe(twoHandHold!.data!.handDistance)
+      expect(action.params.delta).not.toBe(0)
     })
   })
 })

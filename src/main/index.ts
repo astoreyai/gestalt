@@ -67,7 +67,10 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024
 
 function setupIpcHandlers(): void {
   // Echo test (dev)
-  ipcMain.handle(IPC.ECHO, (_event, msg: string) => {
+  ipcMain.handle(IPC.ECHO, (_event, msg: unknown) => {
+    if (typeof msg !== 'string' || msg.length > 1000) {
+      return 'Echo: [invalid input]'
+    }
     return `Echo: ${msg}`
   })
 

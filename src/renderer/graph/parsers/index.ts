@@ -1,7 +1,8 @@
 /**
  * Graph data parsers — unified entry point.
  */
-export { parseJsonGraph, GraphDataSchema } from './json-parser'
+export { parseJsonGraph } from './json-parser'
+export { GraphDataSchema } from '@renderer/data/validators'
 export { parseGraphML } from './graphml-parser'
 
 import type { GraphData } from '@shared/protocol'

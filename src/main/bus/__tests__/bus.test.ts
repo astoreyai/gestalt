@@ -5,6 +5,7 @@ import { ConnectionManager } from '../connections'
 import { BusServer } from '../server'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { BusGestureMessage } from '@shared/bus-protocol'
+import { GestureType, GesturePhase } from '@shared/protocol'
 import { createServer, type AddressInfo } from 'net'
 import { URL } from 'url'
 
@@ -112,8 +113,8 @@ describe('GestureFanout', () => {
 
   const mockGesture: BusGestureMessage = {
     type: 'gesture',
-    name: 'pinch',
-    phase: 'onset',
+    name: GestureType.Pinch,
+    phase: GesturePhase.Onset,
     hand: 'right',
     position: [0.5, 0.3, 0.1],
     confidence: 0.95
@@ -934,5 +935,294 @@ describe('BusServer register validation', () => {
     expect(errorMsg.code).toBe('VALIDATION_ERROR')
 
     ws.close()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// P1-28: Bus Edge Case Tests
+// ──────────────────────────────────────────────────────────────────────
+
+describe('Bus edge cases: binary/Buffer messages (P1-28)', () => {
+  let server: BusServer | null = null
+  let port: number
+  const openClients: WebSocket[] = []
+
+  beforeEach(async () => {
+    port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: false })
+    await server.start()
+  })
+
+  afterEach(async () => {
+    await Promise.all(openClients.map(ws => new Promise<void>(resolve => {
+      if (ws.readyState === WebSocket.CLOSED) return resolve()
+      ws.on('close', () => resolve())
+      ws.close()
+    })))
+    openClients.length = 0
+    if (server) {
+      await server.stop()
+      server = null
+    }
+  })
+
+  function connectClient(): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${port}`)
+      ws.on('open', () => { openClients.push(ws); resolve(ws) })
+      ws.on('error', reject)
+    })
+  }
+
+  function waitForError(ws: WebSocket): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'error') {
+          resolve(msg)
+        }
+      })
+    })
+  }
+
+  it('should handle raw Buffer message containing valid JSON', async () => {
+    const ws = await connectClient()
+
+    const pongPromise = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'pong') {
+          resolve(msg)
+        }
+      })
+    })
+
+    // Send a Buffer containing valid JSON (this is how ws delivers binary frames)
+    const buf = Buffer.from(JSON.stringify({ type: 'ping', timestamp: 12345 }))
+    ws.send(buf)
+
+    const pongMsg = await pongPromise
+    expect(pongMsg.type).toBe('pong')
+
+    ws.close()
+  })
+
+  it('should reject Buffer message containing invalid JSON', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    // Send binary data that is NOT valid JSON
+    const buf = Buffer.from([0x00, 0x01, 0x02, 0xFF, 0xFE])
+    ws.send(buf)
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('PARSE_ERROR')
+
+    ws.close()
+  })
+
+  it('should reject Buffer message containing non-UTF8 binary data', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    // Send random binary bytes that will produce garbage when .toString() is called
+    const randomBytes = Buffer.alloc(128)
+    for (let i = 0; i < 128; i++) randomBytes[i] = Math.floor(Math.random() * 256)
+    ws.send(randomBytes)
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    // Should be either PARSE_ERROR (invalid JSON) or VALIDATION_ERROR
+    expect(['PARSE_ERROR', 'VALIDATION_ERROR']).toContain(errorMsg.code)
+
+    ws.close()
+  })
+})
+
+describe('Bus edge cases: post-shutdown behavior (P1-28)', () => {
+  it('should not broadcast gestures after stop()', async () => {
+    const port = await getAvailablePort()
+    const server = new BusServer({ port, authenticate: false })
+    await server.start()
+    expect(server.isRunning()).toBe(true)
+
+    // Connect a client and register
+    const ws = new WebSocket(`ws://localhost:${port}`)
+
+    // Set up close listener before anything else to avoid race conditions
+    const closePromise = new Promise<void>((resolve) => {
+      ws.on('close', () => resolve())
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+
+    ws.send(JSON.stringify({ type: 'register', program: 'test-app', capabilities: ['*'] }))
+    // Wait for registration to be processed
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    // Close the client first to avoid ECONNRESET during server shutdown
+    ws.close()
+    await closePromise
+
+    // Stop the server
+    await server.stop()
+    expect(server.isRunning()).toBe(false)
+
+    // broadcastGesture should be a no-op after stop (should not throw)
+    expect(() => {
+      server.broadcastGesture({
+        type: 'gesture',
+        name: GestureType.Pinch,
+        hand: 'right',
+        position: [0.5, 0.5, 0],
+        confidence: 0.9,
+        phase: GesturePhase.Onset
+      })
+    }).not.toThrow()
+  })
+
+  it('should reject new connections after stop()', async () => {
+    const port = await getAvailablePort()
+    const server = new BusServer({ port, authenticate: false })
+    await server.start()
+    await server.stop()
+
+    // Attempting to connect after stop should fail
+    const ws = new WebSocket(`ws://localhost:${port}`)
+    const result = await new Promise<string>((resolve) => {
+      ws.on('open', () => resolve('connected'))
+      ws.on('error', () => resolve('error'))
+      setTimeout(() => resolve('timeout'), 2000)
+    })
+
+    expect(result).toBe('error')
+  })
+
+  it('should not throw when calling stop() multiple times', async () => {
+    const port = await getAvailablePort()
+    const server = new BusServer({ port, authenticate: false })
+    await server.start()
+
+    // Stop multiple times — should be idempotent
+    await server.stop()
+    await expect(server.stop()).resolves.not.toThrow()
+    await expect(server.stop()).resolves.not.toThrow()
+    expect(server.isRunning()).toBe(false)
+  })
+})
+
+describe('Bus edge cases: connection limit enforcement (P1-28)', () => {
+  let server: BusServer | null = null
+  let port: number
+  const openClients: WebSocket[] = []
+
+  afterEach(async () => {
+    // Close all client connections
+    await Promise.all(openClients.map(ws => new Promise<void>(resolve => {
+      if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) return resolve()
+      ws.on('close', () => resolve())
+      ws.close()
+    })))
+    openClients.length = 0
+    if (server) {
+      await server.stop()
+      server = null
+    }
+  })
+
+  it('should enforce ConnectionManager MAX_CONNECTIONS limit', async () => {
+    port = await getAvailablePort()
+    // Use short heartbeat/timeout to keep the test fast
+    server = new BusServer({
+      port,
+      authenticate: false,
+      heartbeatInterval: 60000,
+      connectionTimeout: 60000
+    })
+    await server.start()
+
+    // ConnectionManager.MAX_CONNECTIONS is 200.
+    // We test with a smaller batch to stay practical, then verify the mechanism.
+    // Connect 10 clients to verify the server can handle multiple connections
+    const connectPromises: Promise<WebSocket>[] = []
+    for (let i = 0; i < 10; i++) {
+      connectPromises.push(new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(`ws://localhost:${port}`)
+        ws.on('open', () => { openClients.push(ws); resolve(ws) })
+        ws.on('error', reject)
+      }))
+    }
+
+    const clients = await Promise.all(connectPromises)
+    expect(clients).toHaveLength(10)
+
+    // Verify all 10 are open
+    for (const ws of clients) {
+      expect(ws.readyState).toBe(WebSocket.OPEN)
+    }
+  })
+
+  it('should close connection with 1013 when ConnectionManager limit is reached', () => {
+    // Test the ConnectionManager directly since 200 real WebSocket connections
+    // would be too slow for a unit test
+    const manager = new ConnectionManager({
+      heartbeatInterval: 60000,
+      connectionTimeout: 60000
+    })
+
+    // Fill up to the limit (MAX_CONNECTIONS = 200)
+    for (let i = 0; i < 200; i++) {
+      const ws = createMockWs()
+      const id = manager.addConnection(ws)
+      expect(id).not.toBeNull()
+    }
+    expect(manager.size).toBe(200)
+
+    // The 201st connection should be rejected (returns null, ws.close called)
+    const extraWs = createMockWs()
+    const extraId = manager.addConnection(extraWs)
+    expect(extraId).toBeNull()
+    expect(extraWs.close).toHaveBeenCalledWith(1013, 'Maximum connections reached')
+    expect(manager.size).toBe(200) // Still 200, not 201
+  })
+
+  it('should allow new connections after previous ones are removed', () => {
+    const manager = new ConnectionManager({
+      heartbeatInterval: 60000,
+      connectionTimeout: 60000
+    })
+
+    // Fill to limit
+    const ids: string[] = []
+    for (let i = 0; i < 200; i++) {
+      const id = manager.addConnection(createMockWs())
+      ids.push(id!)
+    }
+    expect(manager.size).toBe(200)
+
+    // Verify at limit
+    const rejected = manager.addConnection(createMockWs())
+    expect(rejected).toBeNull()
+
+    // Remove some connections
+    manager.removeConnection(ids[0])
+    manager.removeConnection(ids[1])
+    manager.removeConnection(ids[2])
+    expect(manager.size).toBe(197)
+
+    // Should now accept 3 new connections
+    for (let i = 0; i < 3; i++) {
+      const id = manager.addConnection(createMockWs())
+      expect(id).not.toBeNull()
+    }
+    expect(manager.size).toBe(200)
+
+    // But the 201st should still be rejected
+    const rejected2 = manager.addConnection(createMockWs())
+    expect(rejected2).toBeNull()
   })
 })

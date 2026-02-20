@@ -69,15 +69,6 @@ export const Nodes = React.memo(function Nodes({
     return map
   }, [nodes])
 
-  // Reverse map: node id -> instance index
-  const idToIndex = useMemo(() => {
-    const map = new Map<string, number>()
-    nodes.forEach((node, i) => {
-      map.set(node.id, i)
-    })
-    return map
-  }, [nodes])
-
   // Pre-compute base colors for each node
   const baseColors = useMemo(() => {
     return nodes.map((node, i) => {

@@ -350,11 +350,11 @@ describe('Benchmarks', () => {
 
         const gesture = {
           type: 'gesture' as const,
-          name: 'pinch',
+          name: GestureType.Pinch,
           hand: 'right' as const,
           position: [0.5, 0.5, 0.1] as [number, number, number],
           confidence: 0.9,
-          phase: 'onset'
+          phase: GesturePhase.Onset
         }
 
         const result = runBenchmark(`GestureFanout.broadcast (${count} clients)`, () => {

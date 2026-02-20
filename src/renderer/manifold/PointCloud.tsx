@@ -4,7 +4,6 @@
  * of 5K+ points at 60 FPS.
  *
  * Performance optimisations:
- * - SpatialGrid index for O(log n) nearest-point queries
  * - O(1) per-frame hover highlight (only updates prev + current point)
  */
 
@@ -18,7 +17,6 @@ import {
 } from 'three'
 import type { EmbeddingData, EmbeddingPoint } from '@shared/protocol'
 import { CLUSTER_COLORS } from './types'
-import { SpatialGrid } from './spatial-index'
 
 export interface PointCloudProps {
   /** Embedding data containing all points */
@@ -33,8 +31,6 @@ export interface PointCloudProps {
   onPointClick?: (point: EmbeddingPoint) => void
   /** Base point size in pixels */
   pointSize?: number
-  /** Whether to encode density as point size */
-  sizeByDensity?: boolean
 }
 
 /** Parse hex color string to RGB components in [0, 1] */
@@ -65,8 +61,7 @@ export function PointCloud({
   hoveredPointId,
   onPointHover,
   onPointClick,
-  pointSize = 4.0,
-  sizeByDensity = false
+  pointSize = 4.0
 }: PointCloudProps): React.ReactElement | null {
   const pointsRef = useRef<Points>(null)
   const raycasterRef = useRef(new Raycaster())
@@ -89,17 +84,6 @@ export function PointCloud({
     const map = new Map<string, number>()
     data.points.forEach((p, i) => map.set(p.id, i))
     return map
-  }, [data.points])
-
-  // Spatial index for efficient nearest-point queries
-  const spatialIndex = useMemo(() => {
-    const pts = data.points.map((p, i) => ({
-      index: i,
-      x: p.position.x,
-      y: p.position.y,
-      z: p.position.z
-    }))
-    return new SpatialGrid(pts)
   }, [data.points])
 
   // Build buffer attributes
