@@ -60,7 +60,7 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
         return {
           type: 'rotate',
           params: {
-            angle: gesture.data?.angle ?? 0,
+            angle: gesture.data?.rotation ?? 0,
             axis: 'y'
           }
         }
@@ -84,7 +84,7 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
         return {
           type: 'zoom',
           params: {
-            delta: gesture.data?.distance ?? 0
+            delta: gesture.data?.handDistance ?? 0
           }
         }
       }
@@ -134,7 +134,7 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
       if (gesture.phase === GesturePhase.Hold) {
         return {
           type: 'zoom',
-          params: { delta: gesture.data?.distance ?? 0 }
+          params: { delta: gesture.data?.handDistance ?? 0 }
         }
       }
       return { type: 'noop', params: {} }
@@ -143,7 +143,7 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
       if (gesture.phase === GesturePhase.Hold) {
         return {
           type: 'rotate',
-          params: { angle: gesture.data?.angle ?? 0, axis: 'y' }
+          params: { angle: gesture.data?.rotation ?? 0, axis: 'y' }
         }
       }
       return { type: 'noop', params: {} }

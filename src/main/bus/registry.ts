@@ -29,6 +29,11 @@ export class ProgramRegistry {
     if (!this.programs.has(connectionId) && this.programs.size >= MAX_PROGRAMS) {
       throw new Error(`Maximum number of programs (${MAX_PROGRAMS}) reached`)
     }
+    // Reject if a different connection already registered this program name
+    const existing = this.getByName(name)
+    if (existing && existing.connectionId !== connectionId) {
+      throw new Error(`Program name '${name}' is already registered by another connection`)
+    }
     // If same connection re-registers, update
     this.programs.set(connectionId, {
       connectionId,

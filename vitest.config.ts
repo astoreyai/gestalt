@@ -22,7 +22,7 @@ export default defineConfig({
         'src/**/*.test.tsx',
         'src/**/*.d.ts',
         'src/renderer/index.html',
-        // React/R3F rendering components — tested via integration/E2E, not unit tests
+        // R3F/Three.js rendering components — require WebGL context, tested via E2E not unit tests
         'src/renderer/App.tsx',
         'src/renderer/main.tsx',
         'src/renderer/graph/ForceGraph.tsx',
@@ -31,20 +31,21 @@ export default defineConfig({
         'src/renderer/manifold/PointCloud.tsx',
         'src/renderer/manifold/Clusters.tsx',
         'src/renderer/manifold/HoverCard.tsx',
+        // React components that depend on R3F Canvas context or complex Electron APIs
         'src/renderer/controller/GestureOverlay.tsx',
         'src/renderer/controller/ViewSwitcher.tsx',
         'src/renderer/controller/Calibration.tsx',
         'src/renderer/data/DataLoader.tsx',
         'src/renderer/settings/Settings.tsx',
-        // Barrel re-exports
+        // Barrel re-exports — no logic to test
         'src/renderer/*/index.ts',
-        // Main process entry (Electron-specific)
+        // Electron main-process entry point — requires Electron runtime (app, BrowserWindow)
         'src/main/index.ts',
+        // System tray — requires Electron Tray/Menu APIs unavailable in unit tests
         'src/main/tray.ts',
-        'src/main/input/ipc.ts',
-        'src/main/bus/server.ts',
+        // Example connector — sample code, not production logic
         'src/main/connectors/example.ts',
-        'src/main/connectors/sdk.ts',
+        // Preload bridge — requires Electron contextBridge/ipcRenderer APIs
         'src/preload/index.ts'
       ],
       thresholds: {

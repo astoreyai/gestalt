@@ -284,6 +284,18 @@ export function classifyGesture(
     return null
   }
 
+  const lm = hand.landmarks
+
+  // P2-48: Pre-compute all 5 finger curls once to avoid redundant
+  // recomputation across multiple detect* calls.
+  const curls: Record<FingerName, number> = {
+    thumb: fingerCurl(lm, 'thumb'),
+    index: fingerCurl(lm, 'index'),
+    middle: fingerCurl(lm, 'middle'),
+    ring: fingerCurl(lm, 'ring'),
+    pinky: fingerCurl(lm, 'pinky')
+  }
+
   // Check pinch first — very specific
   const pinch = detectPinch(hand, config)
   if (pinch.detected) {
@@ -293,33 +305,40 @@ export function classifyGesture(
     return { type: GestureType.Pinch, confidence }
   }
 
-  // Check point — only index extended
-  if (detectPoint(hand, config)) {
-    const curl = fingerCurl(hand.landmarks, 'index')
-    return { type: GestureType.Point, confidence: Math.max(0.5, 1 - curl) }
+  // Check point — only index extended (use cached curls)
+  const indexExt = curls.index < config.extensionThreshold
+  const thumbCurled = curls.thumb > config.curlThreshold
+  const middleCurled = curls.middle > config.curlThreshold
+  const ringCurled = curls.ring > config.curlThreshold
+  const pinkyCurled = curls.pinky > config.curlThreshold
+
+  if (indexExt && thumbCurled && middleCurled && ringCurled && pinkyCurled) {
+    return { type: GestureType.Point, confidence: Math.max(0.5, 1 - curls.index) }
   }
 
-  // Check L-shape — thumb + index
-  if (detectLShape(hand, config)) {
+  // Check L-shape — thumb + index extended, rest curled (use cached curls)
+  const thumbExt = curls.thumb < config.extensionThreshold
+  if (thumbExt && indexExt && middleCurled && ringCurled && pinkyCurled) {
     return { type: GestureType.LShape, confidence: 0.85 }
   }
 
-  // Check fist — all curled
-  if (detectFist(hand, config)) {
-    const avgCurl =
-      FINGER_NAMES.reduce((sum, name) => sum + fingerCurl(hand.landmarks, name), 0) / 5
+  // Check fist — all curled (use cached curls)
+  const allCurled = FINGER_NAMES.every((name) => curls[name] > config.curlThreshold)
+  if (allCurled) {
+    const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
     return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
   }
 
-  // Check flat drag — all extended + flat
-  if (detectFlatDrag(hand, config)) {
-    const pose = analyzeHandPose(hand.landmarks, config)
-    return { type: GestureType.FlatDrag, confidence: pose.handFlatness }
-  }
+  // Check flat drag and open palm — need all extended (use cached curls)
+  const allExtended = FINGER_NAMES.every((name) => curls[name] < config.extensionThreshold)
 
-  // Check open palm — all extended (least specific)
-  if (detectOpenPalm(hand, config)) {
-    const pose = analyzeHandPose(hand.landmarks, config)
+  if (allExtended) {
+    const pose = analyzeHandPose(lm, config)
+    // Check flat drag — all extended + flat
+    if (pose.handFlatness > 0.7) {
+      return { type: GestureType.FlatDrag, confidence: pose.handFlatness }
+    }
+    // Check open palm — all extended (least specific)
     return { type: GestureType.OpenPalm, confidence: pose.palmOpenness }
   }
 

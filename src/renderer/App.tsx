@@ -1,7 +1,13 @@
 import React, { Suspense, useState, useCallback, useEffect, useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stats, Html } from '@react-three/drei'
-import { useAppStore } from './controller/store'
+import {
+  useVisualStore,
+  useDataStore,
+  useGestureStore,
+  useConfigStore,
+  useUIStore
+} from './controller/store'
 import { GestureOverlay } from './controller/GestureOverlay'
 import { Calibration } from './controller/Calibration'
 import { DataLoader } from './data/DataLoader'
@@ -21,18 +27,54 @@ import { useHandTracker } from './hooks/useHandTracker'
 import type { GraphData, EmbeddingData, CalibrationProfile } from '@shared/protocol'
 
 export function App(): React.ReactElement {
-  const {
-    viewMode,
-    graphData, embeddingData, setGraphData, setEmbeddingData,
-    selectedNodeId, hoveredNodeId, selectNode, hoverNode,
-    selectedClusterId, selectCluster,
-    activeGesture, trackingEnabled,
-    config, updateConfig,
-    calibrated, setCalibrated,
-    error, setError,
-    toasts, addToast, removeToast,
-    activeModal, setActiveModal
-  } = useAppStore()
+  // P1-21: Use individual slice selectors instead of useAppStore() to avoid
+  // full-tree re-renders when any unrelated slice changes.
+  const viewMode = useVisualStore((s) => s.viewMode)
+  const selectedNodeId = useVisualStore((s) => s.selectedNodeId)
+  const hoveredNodeId = useVisualStore((s) => s.hoveredNodeId)
+  const selectedClusterId = useVisualStore((s) => s.selectedClusterId)
+  const selectNode = useVisualStore((s) => s.selectNode)
+  const hoverNode = useVisualStore((s) => s.hoverNode)
+  const selectCluster = useVisualStore((s) => s.selectCluster)
+  const setViewMode = useVisualStore((s) => s.setViewMode)
+
+  const graphData = useDataStore((s) => s.graphData)
+  const embeddingData = useDataStore((s) => s.embeddingData)
+  const setGraphDataRaw = useDataStore((s) => s.setGraphData)
+  const setEmbeddingDataRaw = useDataStore((s) => s.setEmbeddingData)
+
+  const activeGesture = useGestureStore((s) => s.activeGesture)
+  const trackingEnabled = useGestureStore((s) => s.trackingEnabled)
+
+  const config = useConfigStore((s) => s.config)
+  const updateConfig = useConfigStore((s) => s.updateConfig)
+  const calibrated = useConfigStore((s) => s.calibrated)
+  const setCalibrated = useConfigStore((s) => s.setCalibrated)
+
+  const error = useUIStore((s) => s.error)
+  const setError = useUIStore((s) => s.setError)
+  const toasts = useUIStore((s) => s.toasts)
+  const addToast = useUIStore((s) => s.addToast)
+  const removeToast = useUIStore((s) => s.removeToast)
+  const activeModal = useUIStore((s) => s.activeModal)
+  const setActiveModal = useUIStore((s) => s.setActiveModal)
+
+  // Wrap setGraphData/setEmbeddingData to also set viewMode (mirrors useAppStore behavior)
+  const setGraphData = useCallback(
+    (data: GraphData | null) => {
+      setGraphDataRaw(data)
+      setViewMode('graph')
+    },
+    [setGraphDataRaw, setViewMode]
+  )
+
+  const setEmbeddingData = useCallback(
+    (data: EmbeddingData | null) => {
+      setEmbeddingDataRaw(data)
+      setViewMode('manifold')
+    },
+    [setEmbeddingDataRaw, setViewMode]
+  )
 
   // Hand tracking via hook — graceful degradation on failure
   const { frame: landmarkFrame, error: trackerError } = useHandTracker({

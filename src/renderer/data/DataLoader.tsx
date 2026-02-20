@@ -17,9 +17,16 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const processContent = useCallback((content: string, filename: string) => {
+  const processContent = useCallback(async (content: string, filename: string) => {
     try {
+      // Yield to the event loop before the heavy JSON.parse so the UI
+      // stays responsive for large files.
+      await new Promise(resolve => setTimeout(resolve, 0))
       const parsed = JSON.parse(content)
+
+      // Yield again before Zod schema validation (also CPU-intensive
+      // for large graphs).
+      await new Promise(resolve => setTimeout(resolve, 0))
       const result = validateData(parsed)
 
       if (!result.success) {
@@ -36,6 +43,9 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
     } catch (err) {
       onError(`Failed to parse ${filename}: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
+    // NOTE: For truly large files (>10MB / >1M nodes), a dedicated Web Worker
+    // with streaming JSON parsing (e.g. oboe.js or clarinet) would be the
+    // ideal solution to keep the main thread completely free.
   }, [onGraphLoaded, onEmbeddingLoaded, onError])
 
   const handleFileSelect = useCallback(async () => {
@@ -51,7 +61,7 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
       if (path) {
         const content = await window.api.loadFile(path)
         const filename = path.split('/').pop() ?? 'unknown'
-        processContent(content, filename)
+        await processContent(content, filename)
       }
     } catch (err) {
       onError(`Failed to load file: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -66,14 +76,14 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
 
     setLoading(true)
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const content = reader.result
       if (typeof content !== 'string') {
         onError('File content is not text')
         setLoading(false)
         return
       }
-      processContent(content, file.name)
+      await processContent(content, file.name)
       setLoading(false)
     }
     reader.onerror = () => {
@@ -92,14 +102,14 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
 
     setLoading(true)
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const content = reader.result
       if (typeof content !== 'string') {
         onError('File content is not text')
         setLoading(false)
         return
       }
-      processContent(content, file.name)
+      await processContent(content, file.name)
       setLoading(false)
     }
     reader.onerror = () => {

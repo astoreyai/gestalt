@@ -46,12 +46,31 @@ interface SimLink {
   weight?: number
 }
 
-function extractPositions(nodes: SimNode[]): Map<string, { x: number; y: number; z: number }> {
+/**
+ * Reusable position map — avoids allocating a new Map and new {x,y,z}
+ * objects on every tick.  The same Map instance and value objects are
+ * mutated in-place and returned each call.
+ */
+function createPositionExtractor() {
   const map = new Map<string, { x: number; y: number; z: number }>()
-  for (const n of nodes) {
-    map.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 })
+  let initialised = false
+
+  return function extractPositions(nodes: SimNode[]): Map<string, { x: number; y: number; z: number }> {
+    if (!initialised) {
+      for (const n of nodes) {
+        map.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 })
+      }
+      initialised = true
+    } else {
+      for (const n of nodes) {
+        const pos = map.get(n.id)!
+        pos.x = n.x ?? 0
+        pos.y = n.y ?? 0
+        pos.z = n.z ?? 0
+      }
+    }
+    return map
   }
-  return map
 }
 
 // ─── Factory ────────────────────────────────────────────────────────
@@ -68,8 +87,19 @@ export function createForceSimulation(config: SimulationConfig): ForceSimulation
     weight: e.weight
   }))
 
+  // Barnes-Hut approximation scaling:
+  // - theta(0.9) enables the octree approximation, reducing many-body from
+  //   O(n^2) to O(n log n).  Higher theta = faster but less accurate.
+  // - For very large graphs (>100k nodes) we trade accuracy for speed by
+  //   increasing theta further.  The visual difference is negligible at
+  //   that scale because individual node positions matter less.
+  const nodeCount = simNodes.length
+  const theta = nodeCount > 100_000 ? 1.5 : 0.9
+
+  const charge = forceManyBody().strength(-40).theta(theta)
+
   const sim = forceSimulation(simNodes, 3)
-    .force('charge', forceManyBody().strength(-40).distanceMax(200))
+    .force('charge', charge)
     .force(
       'link',
       forceLink(simLinks)
@@ -85,6 +115,7 @@ export function createForceSimulation(config: SimulationConfig): ForceSimulation
     .velocityDecay(0.3)
     .stop()
 
+  const extractPositions = createPositionExtractor()
   let stopped = false
 
   return {

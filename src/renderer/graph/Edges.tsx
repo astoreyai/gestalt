@@ -2,9 +2,9 @@
  * Edges component — renders graph edges using THREE.LineSegments for efficiency.
  * All edges are batched into a single draw call using BufferGeometry.
  */
-import React, { useRef, useMemo } from 'react'
+import React, { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
-import * as THREE from 'three'
+import { Color, DynamicDrawUsage, AdditiveBlending, LineSegments, BufferAttribute } from 'three'
 import type { GraphEdge } from '@shared/protocol'
 import type { NodePosition } from './Nodes'
 
@@ -18,9 +18,9 @@ export interface EdgesProps {
 }
 
 /** Default edge color */
-const DEFAULT_EDGE_COLOR = new THREE.Color('#444444')
+const DEFAULT_EDGE_COLOR = new Color('#444444')
 /** Highlighted edge color (connected to selected node) */
-const HIGHLIGHT_EDGE_COLOR = new THREE.Color('#88bbff')
+const HIGHLIGHT_EDGE_COLOR = new Color('#88bbff')
 /** Minimum opacity for edges */
 const MIN_OPACITY = 0.15
 /** Maximum opacity for edges */
@@ -31,7 +31,7 @@ export const Edges = React.memo(function Edges({
   positions,
   selectedId
 }: EdgesProps): React.ReactElement | null {
-  const lineRef = useRef<THREE.LineSegments>(null)
+  const lineRef = useRef<LineSegments>(null)
 
   // Pre-compute the set of node IDs connected to selected node
   const selectedConnections = useMemo(() => {
@@ -55,6 +55,21 @@ export const Edges = React.memo(function Edges({
       colorBuffer: colArr
     }
   }, [edges.length])
+
+  // Dispose geometry and material on unmount (P0-5)
+  useEffect(() => {
+    return () => {
+      const line = lineRef.current
+      if (line) {
+        line.geometry.dispose()
+        if (Array.isArray(line.material)) {
+          line.material.forEach((m) => m.dispose())
+        } else {
+          line.material.dispose()
+        }
+      }
+    }
+  }, [])
 
   // Update positions and colors each frame
   useFrame(() => {
@@ -102,15 +117,16 @@ export const Edges = React.memo(function Edges({
     }
 
     if (anyUpdate) {
-      const posAttr = geom.getAttribute('position') as THREE.BufferAttribute
+      const posAttr = geom.getAttribute('position') as BufferAttribute
       posAttr.set(positionBuffer)
       posAttr.needsUpdate = true
 
-      const colAttr = geom.getAttribute('color') as THREE.BufferAttribute
+      const colAttr = geom.getAttribute('color') as BufferAttribute
       colAttr.set(colorBuffer)
       colAttr.needsUpdate = true
 
-      geom.computeBoundingSphere()
+      // P2-44: Removed computeBoundingSphere() from per-frame loop.
+      // frustumCulled is false so the bounding sphere is never needed.
     }
   })
 
@@ -123,13 +139,13 @@ export const Edges = React.memo(function Edges({
           attach="attributes-position"
           args={[positionBuffer, 3]}
           count={edges.length * 2}
-          usage={THREE.DynamicDrawUsage}
+          usage={DynamicDrawUsage}
         />
         <bufferAttribute
           attach="attributes-color"
           args={[colorBuffer, 3]}
           count={edges.length * 2}
-          usage={THREE.DynamicDrawUsage}
+          usage={DynamicDrawUsage}
         />
       </bufferGeometry>
       <lineBasicMaterial
@@ -137,7 +153,7 @@ export const Edges = React.memo(function Edges({
         transparent
         opacity={1.0}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
       />
     </lineSegments>
   )

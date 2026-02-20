@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import { IPC } from '@shared/ipc-channels'
 import type { AppConfig, CalibrationProfile, GestureEvent, LandmarkFrame } from '@shared/protocol'
 import { initPersistence, getPersistence } from './persistence'
 import { isAllowedPath } from './security'
+import { z } from 'zod'
 import { PartialAppConfigSchema, CalibrationProfileSchema, LandmarkFrameSchema, GestureEventSchema } from './ipc-validators'
 import { BusServer } from './bus/server'
 import { RateLimiter } from './rate-limiter'
@@ -52,6 +53,16 @@ function createWindow(): void {
 // ─── Rate Limiter for IPC write operations (60 req/sec) ─────────
 const ipcWriteLimiter = new RateLimiter(60, 1000)
 
+// ─── Rate Limiter for IPC read operations (200 req/sec) ─────────
+const ipcReadLimiter = new RateLimiter(200, 1000)
+
+// ─── Profile ID validation schema ───────────────────────────────
+const IdSchema = z.string().min(1).max(100)
+const NullableIdSchema = z.string().min(1).max(100).nullable()
+
+/** Maximum file size for FILE_LOAD (50MB) */
+const MAX_FILE_SIZE = 50 * 1024 * 1024
+
 // ─── IPC Handlers ───────────────────────────────────────────────
 
 function setupIpcHandlers(): void {
@@ -84,6 +95,9 @@ function setupIpcHandlers(): void {
 
   // Config management
   ipcMain.handle(IPC.CONFIG_GET, () => {
+    if (!ipcReadLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       return getPersistence().getPersistedConfig()
     } catch (err) {
@@ -112,6 +126,9 @@ function setupIpcHandlers(): void {
 
   // Calibration profile management
   ipcMain.handle(IPC.PROFILE_LIST, () => {
+    if (!ipcReadLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       return getPersistence().getProfiles()
     } catch (err) {
@@ -120,8 +137,15 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.PROFILE_GET, (_event, id: string) => {
+    if (!ipcReadLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
+    const parsed = IdSchema.safeParse(id)
+    if (!parsed.success) {
+      throw new Error(`Invalid profile id: ${parsed.error.message}`)
+    }
     try {
-      return getPersistence().getProfile(id)
+      return getPersistence().getProfile(parsed.data)
     } catch (err) {
       throw new Error(`Failed to get profile: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -161,22 +185,33 @@ function setupIpcHandlers(): void {
     if (!ipcWriteLimiter.tryAcquire()) {
       throw new Error('Rate limit exceeded')
     }
+    const parsed = IdSchema.safeParse(id)
+    if (!parsed.success) {
+      throw new Error(`Invalid profile id: ${parsed.error.message}`)
+    }
     try {
-      getPersistence().deleteProfile(id)
+      getPersistence().deleteProfile(parsed.data)
     } catch (err) {
       throw new Error(`Failed to delete profile: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
   ipcMain.handle(IPC.PROFILE_SET_ACTIVE, (_event, id: string | null) => {
+    const parsed = NullableIdSchema.safeParse(id)
+    if (!parsed.success) {
+      throw new Error(`Invalid profile id: ${parsed.error.message}`)
+    }
     try {
-      getPersistence().setActiveProfileId(id)
+      getPersistence().setActiveProfileId(parsed.data)
     } catch (err) {
       throw new Error(`Failed to set active profile: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
   ipcMain.handle(IPC.PROFILE_GET_ACTIVE, () => {
+    if (!ipcReadLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       return getPersistence().getActiveProfileId()
     } catch (err) {
@@ -186,6 +221,9 @@ function setupIpcHandlers(): void {
 
   // Full persisted state (for initial hydration)
   ipcMain.handle(IPC.PERSIST_GET_ALL, () => {
+    if (!ipcReadLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       return getPersistence().getPersistedData()
     } catch (err) {
@@ -215,9 +253,13 @@ function setupIpcHandlers(): void {
       if (!isAllowedPath(path)) {
         throw new Error('Access denied: file path outside allowed directories')
       }
+      const info = await stat(path)
+      if (info.size > MAX_FILE_SIZE) {
+        throw new Error(`File too large: ${info.size} bytes (max ${MAX_FILE_SIZE})`)
+      }
       return await readFile(path, 'utf-8')
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('Access denied')) throw err
+      if (err instanceof Error && (err.message.startsWith('Access denied') || err.message.startsWith('File too large'))) throw err
       throw new Error(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`)
     }
   })

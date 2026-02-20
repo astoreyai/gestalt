@@ -4,12 +4,17 @@
  * to allowed directories only.
  */
 
-import { resolve } from 'path'
-import { homedir } from 'os'
+import { resolve, join } from 'path'
+import { homedir, tmpdir } from 'os'
+import { realpathSync } from 'fs'
 
 /** Directories from which file loading is allowed */
 const ALLOWED_DIRS = [
-  homedir()  // User's home directory
+  join(homedir(), 'Documents'),
+  join(homedir(), 'Downloads'),
+  join(homedir(), 'Desktop'),
+  join(homedir(), '.config', 'tracking'),
+  tmpdir()
 ]
 
 /**
@@ -22,7 +27,16 @@ const ALLOWED_DIRS = [
  * @returns true if the resolved path falls under an allowed directory
  */
 export function isAllowedPath(filePath: string, extraAllowedDirs: string[] = []): boolean {
-  const resolved = resolve(filePath)
+  let resolved: string
+  try {
+    // Prefer realpathSync to follow symlinks (prevents symlink-based traversal)
+    resolved = realpathSync(filePath)
+  } catch {
+    // File doesn't exist yet — fall back to resolve() for path validation.
+    // This is safe because readFile will fail anyway if the path is invalid,
+    // and we still validate the resolved path against allowed directories.
+    resolved = resolve(filePath)
+  }
   const allDirs = [...ALLOWED_DIRS, ...extraAllowedDirs]
   return allDirs.some(dir => {
     const resolvedDir = resolve(dir)

@@ -10,8 +10,10 @@
 #include <linux/input-event-codes.h>
 #include <cstring>
 #include <cerrno>
+#include <sys/time.h>
 #include <map>
 #include <string>
+#include <vector>
 
 static int kb_fd = -1;
 
@@ -40,17 +42,21 @@ static const std::map<std::string, int> KEY_MAP = {
   {"f9", KEY_F9}, {"f10", KEY_F10}, {"f11", KEY_F11}, {"f12", KEY_F12}
 };
 
-static void emit(int fd, int type, int code, int val) {
-  struct input_event ie;
-  memset(&ie, 0, sizeof(ie));
+static int emit(int fd, int type, int code, int val) {
+  struct input_event ie = {};
   ie.type = type;
   ie.code = code;
   ie.value = val;
-  write(fd, &ie, sizeof(ie));
+  gettimeofday(&ie.time, NULL);
+  ssize_t ret;
+  do {
+    ret = write(fd, &ie, sizeof(ie));
+  } while (ret < 0 && errno == EINTR);
+  return (ret == (ssize_t)sizeof(ie)) ? 0 : -1;
 }
 
-static void syn(int fd) {
-  emit(fd, EV_SYN, SYN_REPORT, 0);
+static int syn(int fd) {
+  return emit(fd, EV_SYN, SYN_REPORT, 0);
 }
 
 static int lookupKey(const std::string& name) {
@@ -69,11 +75,19 @@ Napi::Value CreateKeyboard(const Napi::CallbackInfo& info) {
     return env.Null();
   }
 
-  ioctl(kb_fd, UI_SET_EVBIT, EV_KEY);
+  if (ioctl(kb_fd, UI_SET_EVBIT, EV_KEY) < 0) {
+    close(kb_fd); kb_fd = -1;
+    Napi::Error::New(env, std::string("ioctl UI_SET_EVBIT EV_KEY failed: ") + strerror(errno)).ThrowAsJavaScriptException();
+    return env.Null();
+  }
 
   // Enable all keys in our map
   for (const auto& pair : KEY_MAP) {
-    ioctl(kb_fd, UI_SET_KEYBIT, pair.second);
+    if (ioctl(kb_fd, UI_SET_KEYBIT, pair.second) < 0) {
+      close(kb_fd); kb_fd = -1;
+      Napi::Error::New(env, std::string("ioctl UI_SET_KEYBIT failed for key '") + pair.first + "': " + strerror(errno)).ThrowAsJavaScriptException();
+      return env.Null();
+    }
   }
 
   struct uinput_setup usetup;
@@ -83,8 +97,16 @@ Napi::Value CreateKeyboard(const Napi::CallbackInfo& info) {
   usetup.id.product = 0x5679;
   snprintf(usetup.name, UINPUT_MAX_NAME_SIZE, "Tracking Virtual Keyboard");
 
-  ioctl(kb_fd, UI_DEV_SETUP, &usetup);
-  ioctl(kb_fd, UI_DEV_CREATE);
+  if (ioctl(kb_fd, UI_DEV_SETUP, &usetup) < 0) {
+    close(kb_fd); kb_fd = -1;
+    Napi::Error::New(env, std::string("ioctl UI_DEV_SETUP failed: ") + strerror(errno)).ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  if (ioctl(kb_fd, UI_DEV_CREATE) < 0) {
+    close(kb_fd); kb_fd = -1;
+    Napi::Error::New(env, std::string("ioctl UI_DEV_CREATE failed: ") + strerror(errno)).ThrowAsJavaScriptException();
+    return env.Null();
+  }
 
   return Napi::Boolean::New(env, true);
 }

@@ -139,6 +139,8 @@ export class OneEuroFilter {
  */
 export class LandmarkSmoother {
   private _filters: { x: OneEuroFilter; y: OneEuroFilter; z: OneEuroFilter }[]
+  /** Pre-allocated output array to avoid per-frame allocations (P2-46) */
+  private _outputBuffer: Landmark[]
 
   constructor(
     private _config: OneEuroFilterConfig = {},
@@ -149,26 +151,43 @@ export class LandmarkSmoother {
       y: new OneEuroFilter(_config),
       z: new OneEuroFilter(_config)
     }))
+    this._outputBuffer = Array.from({ length: _numLandmarks }, () => ({ x: 0, y: 0, z: 0 }))
   }
 
   /**
    * Smooth an array of landmarks.
    * @param landmarks Array of landmarks (must have length === _numLandmarks).
    * @param timestamp Timestamp in seconds.
-   * @returns New array of smoothed landmarks.
+   * @param output    Optional pre-allocated output array to reuse (P2-46).
+   *                  If not provided, the internal buffer is used.
+   * @returns Array of smoothed landmarks (may be the internal buffer -- do not hold references across frames).
    */
-  smooth(landmarks: Landmark[], timestamp: number): Landmark[] {
+  smooth(landmarks: Landmark[], timestamp: number, output?: Landmark[]): Landmark[] {
     if (landmarks.length !== this._numLandmarks) {
       throw new Error(
         `Expected ${this._numLandmarks} landmarks but received ${landmarks.length}`
       )
     }
 
-    return landmarks.map((lm, i) => ({
-      x: this._filters[i].x.filter(lm.x, timestamp),
-      y: this._filters[i].y.filter(lm.y, timestamp),
-      z: this._filters[i].z.filter(lm.z, timestamp)
-    }))
+    const out = output ?? this._outputBuffer
+    for (let i = 0; i < this._numLandmarks; i++) {
+      const lm = landmarks[i]
+      const f = this._filters[i]
+      // Reuse existing object in the output array if available
+      if (out[i]) {
+        out[i].x = f.x.filter(lm.x, timestamp)
+        out[i].y = f.y.filter(lm.y, timestamp)
+        out[i].z = f.z.filter(lm.z, timestamp)
+      } else {
+        out[i] = {
+          x: f.x.filter(lm.x, timestamp),
+          y: f.y.filter(lm.y, timestamp),
+          z: f.z.filter(lm.z, timestamp)
+        }
+      }
+    }
+
+    return out
   }
 
   /** Reset all filters so next call behaves as first frame. */

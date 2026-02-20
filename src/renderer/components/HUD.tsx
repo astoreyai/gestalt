@@ -4,7 +4,7 @@
  */
 
 import React from 'react'
-import { useAppStore } from '../controller/store'
+import { useVisualStore, useGestureStore, useUIStore } from '../controller/store'
 import { ViewSwitcher } from '../controller/ViewSwitcher'
 import { A11Y_COLORS, getTrackingStatusIndicator } from '../controller/a11y'
 
@@ -27,11 +27,12 @@ export interface HUDProps {
 }
 
 export function HUD({ hasGraph, hasManifold, nodeCount, pointCount }: HUDProps): React.ReactElement {
-  const {
-    viewMode, setViewMode,
-    trackingEnabled,
-    activeModal, setActiveModal
-  } = useAppStore()
+  // P1-21: Use individual slice selectors instead of useAppStore()
+  const viewMode = useVisualStore((s) => s.viewMode)
+  const setViewMode = useVisualStore((s) => s.setViewMode)
+  const trackingEnabled = useGestureStore((s) => s.trackingEnabled)
+  const activeModal = useUIStore((s) => s.activeModal)
+  const setActiveModal = useUIStore((s) => s.setActiveModal)
 
   return (
     <div style={{

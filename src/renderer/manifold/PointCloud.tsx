@@ -8,9 +8,14 @@
  * - O(1) per-frame hover highlight (only updates prev + current point)
  */
 
-import React, { useRef, useMemo, useCallback } from 'react'
+import React, { useRef, useMemo, useCallback, useEffect } from 'react'
 import { useFrame, useThree, ThreeEvent } from '@react-three/fiber'
-import * as THREE from 'three'
+import {
+  Points,
+  Raycaster,
+  BufferAttribute,
+  AdditiveBlending
+} from 'three'
 import type { EmbeddingData, EmbeddingPoint } from '@shared/protocol'
 import { CLUSTER_COLORS } from './types'
 import { SpatialGrid } from './spatial-index'
@@ -63,8 +68,8 @@ export function PointCloud({
   pointSize = 4.0,
   sizeByDensity = false
 }: PointCloudProps): React.ReactElement | null {
-  const pointsRef = useRef<THREE.Points>(null)
-  const raycasterRef = useRef(new THREE.Raycaster())
+  const pointsRef = useRef<Points>(null)
+  const raycasterRef = useRef(new Raycaster())
   const { camera, pointer } = useThree()
 
   // Track which buffer indices are currently / previously hovered so the
@@ -132,13 +137,28 @@ export function PointCloud({
     return { positions: pos, colors: col, sizes: sz }
   }, [data, selectedCluster, pointSize])
 
+  // Dispose geometry and material on unmount (P0-5)
+  useEffect(() => {
+    return () => {
+      const pts = pointsRef.current
+      if (pts) {
+        pts.geometry.dispose()
+        if (Array.isArray(pts.material)) {
+          pts.material.forEach((m) => m.dispose())
+        } else {
+          pts.material.dispose()
+        }
+      }
+    }
+  }, [])
+
   // O(1) per-frame hover highlight: only update the previously-hovered and
   // currently-hovered buffer indices instead of scanning all N points.
   useFrame(() => {
     if (!pointsRef.current) return
     const geom = pointsRef.current.geometry
-    const colorAttr = geom.getAttribute('color') as THREE.BufferAttribute
-    const sizeAttr = geom.getAttribute('size') as THREE.BufferAttribute
+    const colorAttr = geom.getAttribute('color') as BufferAttribute
+    const sizeAttr = geom.getAttribute('size') as BufferAttribute
 
     if (!colorAttr || !sizeAttr) return
 
@@ -263,7 +283,7 @@ export function PointCloud({
         transparent
         opacity={0.85}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
       />
     </points>
   )

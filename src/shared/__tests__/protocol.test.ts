@@ -121,9 +121,9 @@ describe('Protocol Types', () => {
         confidence: 0.8,
         position: { x: 0, y: 0, z: 0 },
         timestamp: 1000,
-        data: { angle: 45.0, speed: 2.3 }
+        data: { rotation: 45.0, speed: 2.3 }
       }
-      expect(event.data?.angle).toBe(45.0)
+      expect(event.data?.rotation).toBe(45.0)
     })
   })
 

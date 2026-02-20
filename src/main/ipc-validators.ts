@@ -114,6 +114,6 @@ export const MouseCommandSchema = z.object({
 export const KeyboardCommandSchema = z.object({
   target: z.literal('keyboard'),
   action: z.enum(['press', 'release', 'combo']),
-  key: z.string().optional(),
-  keys: z.array(z.string()).optional()
+  key: z.string().min(1).max(20).optional(),
+  keys: z.array(z.string().min(1).max(20)).max(10).optional()
 })

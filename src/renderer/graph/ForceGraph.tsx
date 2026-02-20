@@ -89,17 +89,6 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         weight: edge.weight
       }))
 
-      // Helper: convert a positions array from the worker into a Map
-      const arrayToMap = (
-        arr: Array<{ id: string; x: number; y: number; z: number }>
-      ): Map<string, NodePosition> => {
-        const map = new Map<string, NodePosition>()
-        for (const p of arr) {
-          map.set(p.id, { x: p.x, y: p.y, z: p.z })
-        }
-        return map
-      }
-
       // ── Try Web Worker path ───────────────────────────────────
       if (typeof Worker !== 'undefined') {
         let worker: Worker | null = null
@@ -115,13 +104,38 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         if (worker) {
           const w = worker
 
+          // The worker sends nodeIds once on the first message, then sends
+          // positions as a flat Float64Array [x0, y0, z0, x1, y1, z1, ...]
+          // matching the nodeIds order. We keep a reusable Map to avoid
+          // allocating new objects every tick.
+          let workerNodeIds: string[] | null = null
+          const reusableMap = new Map<string, NodePosition>()
+
           w.onmessage = (event: MessageEvent<WorkerResponse>) => {
-            const { type, positions: posArr } = event.data
-            if (type === 'positions' || type === 'done') {
-              const newPositions = arrayToMap(posArr)
-              positionsRef.current = newPositions
-              setPositions(newPositions)
+            const { type, positions: posArr, nodeIds: ids } = event.data
+            if (type !== 'positions' && type !== 'done') return
+
+            // Capture the stable node ID ordering from the first message
+            if (ids) {
+              workerNodeIds = ids
+              // Pre-populate the reusable map with position objects
+              for (const id of ids) {
+                reusableMap.set(id, { x: 0, y: 0, z: 0 })
+              }
             }
+
+            if (!workerNodeIds) return
+
+            // Read Float64Array positions directly into the reusable Map
+            for (let i = 0; i < workerNodeIds.length; i++) {
+              const pos = reusableMap.get(workerNodeIds[i])!
+              pos.x = posArr[i * 3]
+              pos.y = posArr[i * 3 + 1]
+              pos.z = posArr[i * 3 + 2]
+            }
+
+            positionsRef.current = reusableMap
+            setPositions(new Map(reusableMap))
           }
 
           w.postMessage({ type: 'init', nodes: simNodes, edges: simEdges })
