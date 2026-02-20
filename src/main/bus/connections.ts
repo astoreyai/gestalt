@@ -77,7 +77,7 @@ export class ConnectionManager {
     for (const [id, conn] of this.connections) {
       if (!conn.alive) {
         // Was marked not alive on previous check — terminate
-        console.log(`[ConnectionManager] Terminating dead connection: ${id}`)
+        console.warn(`[ConnectionManager] Terminating dead connection: ${id}`)
         conn.ws.terminate()
         this.connections.delete(id)
         continue

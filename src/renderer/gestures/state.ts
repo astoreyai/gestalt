@@ -14,7 +14,7 @@ import {
   LANDMARK
 } from '@shared/protocol'
 import { type GestureConfig, DEFAULT_GESTURE_CONFIG } from './types'
-import { classifyGesture, detectPinch, distance, angleBetween } from './classifier'
+import { classifyGesture, detectPinch, distance } from './classifier'
 
 // ─── State Machine ──────────────────────────────────────────────────
 

@@ -5,8 +5,19 @@ import { IPC } from '@shared/ipc-channels'
 import type { AppConfig, CalibrationProfile, GestureEvent, LandmarkFrame } from '@shared/protocol'
 import { initPersistence, getPersistence } from './persistence'
 import { isAllowedPath } from './security'
-import { PartialAppConfigSchema, CalibrationProfileSchema } from './ipc-validators'
+import { PartialAppConfigSchema, CalibrationProfileSchema, LandmarkFrameSchema, GestureEventSchema } from './ipc-validators'
 import { BusServer } from './bus/server'
+import { RateLimiter } from './rate-limiter'
+import { deepMerge } from './deep-merge'
+
+// ─── Global error handlers ──────────────────────────────────────
+process.on('unhandledRejection', (reason) => {
+  console.error('[Main] Unhandled rejection:', reason instanceof Error ? reason.message : String(reason))
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('[Main] Uncaught exception:', error.message)
+})
 
 let mainWindow: BrowserWindow | null = null
 let busServer: BusServer | null = null
@@ -38,25 +49,37 @@ function createWindow(): void {
   })
 }
 
+// ─── Rate Limiter for IPC write operations (60 req/sec) ─────────
+const ipcWriteLimiter = new RateLimiter(60, 1000)
+
 // ─── IPC Handlers ───────────────────────────────────────────────
 
 function setupIpcHandlers(): void {
   // Echo test (dev)
   ipcMain.handle(IPC.ECHO, (_event, msg: string) => {
-    console.log(`[IPC Echo] ${msg}`)
     return `Echo: ${msg}`
   })
 
   // Landmark frames from renderer tracking
   ipcMain.on(IPC.LANDMARK_FRAME, (_event, frame: LandmarkFrame) => {
+    const parsed = LandmarkFrameSchema.safeParse(frame)
+    if (!parsed.success) {
+      console.warn('[Main] Invalid LandmarkFrame, dropping:', parsed.error.message)
+      return
+    }
     // Forward to bus, input modules when they're ready
-    void frame // Placeholder
+    void parsed.data // Placeholder
   })
 
   // Gesture events from renderer
   ipcMain.on(IPC.GESTURE_EVENT, (_event, gesture: GestureEvent) => {
+    const parsed = GestureEventSchema.safeParse(gesture)
+    if (!parsed.success) {
+      console.warn('[Main] Invalid GestureEvent, dropping:', parsed.error.message)
+      return
+    }
     // Forward to input modules and bus when they're ready
-    void gesture // Placeholder
+    void parsed.data // Placeholder
   })
 
   // Config management
@@ -69,6 +92,9 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.CONFIG_SET, (_event, partial: Partial<AppConfig>) => {
+    if (!ipcWriteLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       const parsed = PartialAppConfigSchema.safeParse(partial)
       if (!parsed.success) {
@@ -76,7 +102,7 @@ function setupIpcHandlers(): void {
       }
       const persistence = getPersistence()
       const current = persistence.getPersistedConfig()
-      const updated = { ...current, ...parsed.data }
+      const updated = deepMerge(current, parsed.data as Partial<typeof current>)
       persistence.setPersistedConfig(updated)
       mainWindow?.webContents.send(IPC.CONFIG_CHANGED, updated)
     } catch (err) {
@@ -102,6 +128,9 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.PROFILE_CREATE, (_event, profile: CalibrationProfile) => {
+    if (!ipcWriteLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       const parsed = CalibrationProfileSchema.safeParse(profile)
       if (!parsed.success) {
@@ -114,6 +143,9 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.PROFILE_UPDATE, (_event, id: string, updates: Partial<CalibrationProfile>) => {
+    if (!ipcWriteLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       const parsed = CalibrationProfileSchema.partial().safeParse(updates)
       if (!parsed.success) {
@@ -126,6 +158,9 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC.PROFILE_DELETE, (_event, id: string) => {
+    if (!ipcWriteLimiter.tryAcquire()) {
+      throw new Error('Rate limit exceeded')
+    }
     try {
       getPersistence().deleteProfile(id)
     } catch (err) {

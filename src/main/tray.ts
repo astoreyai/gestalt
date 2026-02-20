@@ -2,8 +2,7 @@
  * System tray icon with quick toggles for tracking, bus, and view modes.
  */
 
-import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { Tray, Menu, nativeImage } from 'electron'
 
 export interface TrayState {
   trackingEnabled: boolean

@@ -6,6 +6,7 @@ import { BusServer } from '../server'
 import { WebSocket, WebSocketServer } from 'ws'
 import type { BusGestureMessage } from '@shared/bus-protocol'
 import { createServer, type AddressInfo } from 'net'
+import { URL } from 'url'
 
 // Mock WebSocket
 function createMockWs(readyState = WebSocket.OPEN): WebSocket {
@@ -284,7 +285,7 @@ describe('BusServer lifecycle', () => {
 
   it('should start successfully on available port', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
     expect(server.isRunning()).toBe(true)
     expect(server.getPort()).toBe(port)
@@ -292,7 +293,7 @@ describe('BusServer lifecycle', () => {
 
   it('should stop cleanly', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
     expect(server.isRunning()).toBe(true)
 
@@ -303,7 +304,7 @@ describe('BusServer lifecycle', () => {
 
   it('should stop cleanly even when never started', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     // Never started — stop should resolve gracefully
     await server.stop()
     expect(server.isRunning()).toBe(false)
@@ -318,7 +319,7 @@ describe('BusServer lifecycle', () => {
     await new Promise<void>((resolve) => blocker.on('listening', resolve))
 
     try {
-      server = new BusServer({ port })
+      server = new BusServer({ port, authenticate: false })
       await server.start()
       // Should have succeeded on port or port+1 or port+2
       expect(server.isRunning()).toBe(true)
@@ -339,7 +340,7 @@ describe('BusServer lifecycle', () => {
     }
 
     try {
-      server = new BusServer({ port })
+      server = new BusServer({ port, authenticate: false })
       await expect(server.start()).rejects.toThrow()
       server = null // start failed, nothing to stop
     } finally {
@@ -350,7 +351,7 @@ describe('BusServer lifecycle', () => {
   it('should throw non-EADDRINUSE errors immediately', async () => {
     // Port 1 is privileged — should fail with EACCES (not EADDRINUSE)
     // so it should NOT retry
-    server = new BusServer({ port: 1 })
+    server = new BusServer({ port: 1, authenticate: false })
     await expect(server.start()).rejects.toThrow()
     server = null
   })
@@ -366,7 +367,7 @@ describe('BusServer message validation', () => {
 
   beforeEach(async () => {
     port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
   })
 
@@ -552,7 +553,7 @@ describe('BusServer hardening', () => {
 
   it('should bind to localhost (127.0.0.1) only', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
 
     // Connect from localhost — should work
@@ -566,7 +567,7 @@ describe('BusServer hardening', () => {
 
   it('should reject messages exceeding maxPayload (64KB)', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}`)
@@ -605,7 +606,7 @@ describe('BusServer rate limiting', () => {
 
   it('should allow messages under the rate limit', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}`)
@@ -629,7 +630,7 @@ describe('BusServer rate limiting', () => {
 
   it('should reject clients exceeding 100 messages/second', async () => {
     const port = await getAvailablePort()
-    server = new BusServer({ port })
+    server = new BusServer({ port, authenticate: false })
     await server.start()
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}`)
@@ -653,5 +654,265 @@ describe('BusServer rate limiting', () => {
 
     const wasClosed = await closedPromise
     expect(wasClosed).toBe(true)
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// Authentication Tests
+// ──────────────────────────────────────────────────────────────────────
+
+describe('Authentication', () => {
+  let server: BusServer | null = null
+
+  afterEach(async () => {
+    if (server) {
+      await server.stop()
+      server = null
+    }
+  })
+
+  it('should reject connections without token', async () => {
+    const port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: true })
+    await server.start()
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`)
+
+    const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.on('close', (code, reason) => resolve({ code, reason: reason.toString() }))
+    })
+
+    const result = await closePromise
+    expect(result.code).toBe(1008)
+    expect(result.reason).toBe('Unauthorized')
+  })
+
+  it('should reject connections with wrong token', async () => {
+    const port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: true })
+    await server.start()
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=wrong-token-value`)
+
+    const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.on('close', (code, reason) => resolve({ code, reason: reason.toString() }))
+    })
+
+    const result = await closePromise
+    expect(result.code).toBe(1008)
+    expect(result.reason).toBe('Unauthorized')
+  })
+
+  it('should accept connections with correct token', async () => {
+    const port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: true })
+    await server.start()
+
+    const token = server.getToken()
+    expect(token).toBeDefined()
+    expect(token.length).toBe(32) // 16 bytes as hex = 32 chars
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${token}`)
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+
+    // Should be connected
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+
+  it('should skip auth when authenticate=false', async () => {
+    const port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: false })
+    await server.start()
+
+    // Connect without any token
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`)
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', resolve)
+      ws.on('error', reject)
+    })
+
+    // Should be connected even without token
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+    ws.close()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────
+// Register Message Validation Tests
+// ──────────────────────────────────────────────────────────────────────
+
+describe('BusServer register validation', () => {
+  let server: BusServer | null = null
+  let port: number
+
+  beforeEach(async () => {
+    port = await getAvailablePort()
+    server = new BusServer({ port, authenticate: false })
+    await server.start()
+  })
+
+  afterEach(async () => {
+    if (server) {
+      await server.stop()
+      server = null
+    }
+  })
+
+  function connectClient(): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${port}`)
+      ws.on('open', () => resolve(ws))
+      ws.on('error', reject)
+    })
+  }
+
+  function waitForError(ws: WebSocket): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'error') {
+          resolve(msg)
+        }
+      })
+    })
+  }
+
+  it('should reject register with missing program name', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'register', capabilities: ['rotate'] }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid program name')
+
+    ws.close()
+  })
+
+  it('should reject register with empty program name', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'register', program: '', capabilities: ['rotate'] }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid program name')
+
+    ws.close()
+  })
+
+  it('should reject register with program name exceeding 100 chars', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    const longName = 'x'.repeat(101)
+    ws.send(JSON.stringify({ type: 'register', program: longName, capabilities: [] }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid program name')
+
+    ws.close()
+  })
+
+  it('should reject register with non-string program name', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'register', program: 42, capabilities: [] }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid program name')
+
+    ws.close()
+  })
+
+  it('should reject register with non-array capabilities', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'register', program: 'blender', capabilities: 'rotate' }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid capabilities array')
+
+    ws.close()
+  })
+
+  it('should reject register with non-string items in capabilities', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'register', program: 'blender', capabilities: ['rotate', 123] }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+    expect(errorMsg.message).toBe('Invalid capabilities array')
+
+    ws.close()
+  })
+
+  it('should accept valid register message', async () => {
+    const ws = await connectClient()
+
+    // Wait for the status broadcast that follows a successful register
+    const statusPromise = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'status') {
+          resolve(msg)
+        }
+      })
+    })
+
+    ws.send(JSON.stringify({ type: 'register', program: 'blender', capabilities: ['rotate', 'select'] }))
+
+    const statusMsg = await statusPromise
+    expect(statusMsg.type).toBe('status')
+    expect(Array.isArray(statusMsg.programs)).toBe(true)
+
+    ws.close()
+  })
+
+  it('should reject data message with missing program', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'data', payload: { action: 'test' } }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+
+    ws.close()
+  })
+
+  it('should reject data message with missing payload', async () => {
+    const ws = await connectClient()
+    const errorPromise = waitForError(ws)
+
+    ws.send(JSON.stringify({ type: 'data', program: 'blender' }))
+
+    const errorMsg = await errorPromise
+    expect(errorMsg.type).toBe('error')
+    expect(errorMsg.code).toBe('VALIDATION_ERROR')
+
+    ws.close()
   })
 })

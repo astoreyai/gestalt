@@ -2,6 +2,10 @@
  * PointCloud component for rendering embedding points in 3D.
  * Uses THREE.Points with BufferGeometry for high-performance rendering
  * of 5K+ points at 60 FPS.
+ *
+ * Performance optimisations:
+ * - SpatialGrid index for O(log n) nearest-point queries
+ * - O(1) per-frame hover highlight (only updates prev + current point)
  */
 
 import React, { useRef, useMemo, useCallback } from 'react'
@@ -9,6 +13,7 @@ import { useFrame, useThree, ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { EmbeddingData, EmbeddingPoint } from '@shared/protocol'
 import { CLUSTER_COLORS } from './types'
+import { SpatialGrid } from './spatial-index'
 
 export interface PointCloudProps {
   /** Embedding data containing all points */
@@ -62,11 +67,34 @@ export function PointCloud({
   const raycasterRef = useRef(new THREE.Raycaster())
   const { camera, pointer } = useThree()
 
+  // Track which buffer indices are currently / previously hovered so the
+  // per-frame update only touches O(1) points instead of O(n).
+  const prevHoveredIndexRef = useRef<number | null>(null)
+  const currentHoveredIndexRef = useRef<number | null>(null)
+
   // Index map for fast lookups from buffer index to EmbeddingPoint
   const pointIndex = useMemo(() => {
     const map = new Map<number, EmbeddingPoint>()
     data.points.forEach((p, i) => map.set(i, p))
     return map
+  }, [data.points])
+
+  // Reverse map: point id -> buffer index
+  const idToIndex = useMemo(() => {
+    const map = new Map<string, number>()
+    data.points.forEach((p, i) => map.set(p.id, i))
+    return map
+  }, [data.points])
+
+  // Spatial index for efficient nearest-point queries
+  const spatialIndex = useMemo(() => {
+    const pts = data.points.map((p, i) => ({
+      index: i,
+      x: p.position.x,
+      y: p.position.y,
+      z: p.position.z
+    }))
+    return new SpatialGrid(pts)
   }, [data.points])
 
   // Build buffer attributes
@@ -104,7 +132,8 @@ export function PointCloud({
     return { positions: pos, colors: col, sizes: sz }
   }, [data, selectedCluster, pointSize])
 
-  // Update colors for hover highlight without full rebuild
+  // O(1) per-frame hover highlight: only update the previously-hovered and
+  // currently-hovered buffer indices instead of scanning all N points.
   useFrame(() => {
     if (!pointsRef.current) return
     const geom = pointsRef.current.geometry
@@ -113,50 +142,48 @@ export function PointCloud({
 
     if (!colorAttr || !sizeAttr) return
 
+    // Resolve the current hovered buffer index from the prop
+    const newHoveredIndex =
+      hoveredPointId != null ? (idToIndex.get(hoveredPointId) ?? null) : null
+    const prevIndex = currentHoveredIndexRef.current
+
+    // If hovered point hasn't changed, nothing to do
+    if (newHoveredIndex === prevIndex) return
+
     let needsColorUpdate = false
     let needsSizeUpdate = false
 
-    for (let i = 0; i < data.points.length; i++) {
-      const point = data.points[i]
-      const isHovered = point.id === hoveredPointId
-      const i3 = i * 3
+    // Restore previous hovered point to its base colour / size
+    if (prevIndex !== null && prevIndex < data.points.length) {
+      const point = data.points[prevIndex]
+      const hex = getClusterColor(point.clusterId, data)
+      const rgb = hexToRgb(hex)
+      const dimFactor =
+        selectedCluster !== undefined && point.clusterId !== selectedCluster ? 0.25 : 1.0
+      const i3 = prevIndex * 3
 
-      if (isHovered) {
-        // Brighten hovered point
-        colorAttr.array[i3] = 1.0
-        colorAttr.array[i3 + 1] = 1.0
-        colorAttr.array[i3 + 2] = 1.0
-        sizeAttr.array[i] = pointSize * 2.0
-        needsColorUpdate = true
-        needsSizeUpdate = true
-      } else {
-        // Restore base color
-        const hex = getClusterColor(point.clusterId, data)
-        const rgb = hexToRgb(hex)
-        const dimFactor =
-          selectedCluster !== undefined && point.clusterId !== selectedCluster ? 0.25 : 1.0
-
-        const baseR = rgb.r * dimFactor
-        const baseG = rgb.g * dimFactor
-        const baseB = rgb.b * dimFactor
-
-        if (
-          Math.abs(colorAttr.array[i3] - baseR) > 0.01 ||
-          Math.abs(colorAttr.array[i3 + 1] - baseG) > 0.01 ||
-          Math.abs(colorAttr.array[i3 + 2] - baseB) > 0.01
-        ) {
-          colorAttr.array[i3] = baseR
-          colorAttr.array[i3 + 1] = baseG
-          colorAttr.array[i3 + 2] = baseB
-          needsColorUpdate = true
-        }
-
-        if (Math.abs(sizeAttr.array[i] - pointSize) > 0.01) {
-          sizeAttr.array[i] = pointSize
-          needsSizeUpdate = true
-        }
-      }
+      colorAttr.array[i3] = rgb.r * dimFactor
+      colorAttr.array[i3 + 1] = rgb.g * dimFactor
+      colorAttr.array[i3 + 2] = rgb.b * dimFactor
+      sizeAttr.array[prevIndex] = pointSize
+      needsColorUpdate = true
+      needsSizeUpdate = true
     }
+
+    // Highlight the newly hovered point
+    if (newHoveredIndex !== null && newHoveredIndex < data.points.length) {
+      const i3 = newHoveredIndex * 3
+      colorAttr.array[i3] = 1.0
+      colorAttr.array[i3 + 1] = 1.0
+      colorAttr.array[i3 + 2] = 1.0
+      sizeAttr.array[newHoveredIndex] = pointSize * 2.0
+      needsColorUpdate = true
+      needsSizeUpdate = true
+    }
+
+    // Bookkeeping
+    prevHoveredIndexRef.current = prevIndex
+    currentHoveredIndexRef.current = newHoveredIndex
 
     if (needsColorUpdate) colorAttr.needsUpdate = true
     if (needsSizeUpdate) sizeAttr.needsUpdate = true

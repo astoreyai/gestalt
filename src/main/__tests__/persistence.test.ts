@@ -2,10 +2,10 @@
  * @vitest-environment node
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { join } from 'path'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from 'fs'
+import { join, dirname, basename } from 'path'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { createPersistence, type PersistenceAPI } from '../persistence'
+import { createPersistence, rotateBackups, type PersistenceAPI } from '../persistence'
 import { DEFAULT_CONFIG, GestureType } from '@shared/protocol'
 import type { CalibrationProfile } from '@shared/protocol'
 
@@ -320,5 +320,98 @@ describe('Persistence', () => {
       expect(persistence.getProfiles()).toHaveLength(1)
       expect(persistence.getProfile('unique-1')!.name).toBe('First')
     })
+  })
+})
+
+// ─── Backup Rotation ──────────────────────────────────────────
+
+describe('Backup rotation', () => {
+  let tempDir: string
+  let tempFile: string
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'tracking-rotation-'))
+    tempFile = join(tempDir, 'test-data.json')
+    writeFileSync(tempFile, '{}')
+  })
+
+  afterEach(() => {
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should keep at most 3 backup files', () => {
+    // Create 5 backup files with different timestamps
+    for (let i = 1; i <= 5; i++) {
+      const backupPath = `${tempFile}.backup.${1000 + i}`
+      writeFileSync(backupPath, `backup-${i}`)
+    }
+
+    // Verify we have 5 backups before rotation
+    const beforeFiles = readdirSync(tempDir).filter(f => f.includes('.backup.'))
+    expect(beforeFiles).toHaveLength(5)
+
+    rotateBackups(tempFile, 3)
+
+    // After rotation, only 3 should remain
+    const afterFiles = readdirSync(tempDir).filter(f => f.includes('.backup.'))
+    expect(afterFiles).toHaveLength(3)
+  })
+
+  it('should delete oldest backups first', () => {
+    // Create 5 backup files with different timestamps
+    for (let i = 1; i <= 5; i++) {
+      const backupPath = `${tempFile}.backup.${1000 + i}`
+      writeFileSync(backupPath, `backup-${i}`)
+    }
+
+    rotateBackups(tempFile, 3)
+
+    const afterFiles = readdirSync(tempDir)
+      .filter(f => f.includes('.backup.'))
+      .sort()
+
+    // The 3 newest should remain (1003, 1004, 1005)
+    expect(afterFiles).toHaveLength(3)
+    expect(afterFiles[0]).toContain('1003')
+    expect(afterFiles[1]).toContain('1004')
+    expect(afterFiles[2]).toContain('1005')
+
+    // The oldest (1001, 1002) should be gone
+    const allFiles = readdirSync(tempDir)
+    expect(allFiles.some(f => f.includes('1001'))).toBe(false)
+    expect(allFiles.some(f => f.includes('1002'))).toBe(false)
+  })
+
+  it('should not fail when there are fewer backups than maxBackups', () => {
+    // Create only 2 backups (under the limit of 3)
+    writeFileSync(`${tempFile}.backup.1001`, 'backup-1')
+    writeFileSync(`${tempFile}.backup.1002`, 'backup-2')
+
+    // Should not throw
+    rotateBackups(tempFile, 3)
+
+    const afterFiles = readdirSync(tempDir).filter(f => f.includes('.backup.'))
+    expect(afterFiles).toHaveLength(2)
+  })
+
+  it('should rotate backups after corrupted file recovery', () => {
+    // Create 4 existing backup files to simulate history
+    for (let i = 1; i <= 4; i++) {
+      writeFileSync(`${tempFile}.backup.${1000 + i}`, `old-backup-${i}`)
+    }
+
+    // Write corrupted JSON to the main file
+    writeFileSync(tempFile, '{ this is not valid JSON !!!')
+
+    // Re-instantiate — should detect corruption, backup, then rotate
+    createPersistence(tempFile)
+
+    // Should have at most 3 backups after rotation
+    const afterFiles = readdirSync(tempDir).filter(f => f.includes('.backup.'))
+    expect(afterFiles.length).toBeLessThanOrEqual(3)
   })
 })

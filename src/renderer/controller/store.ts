@@ -1,6 +1,7 @@
 /**
  * Zustand store for application state.
- * Central state management for gestures, selection, and view mode.
+ * Split into domain-specific slices to reduce unnecessary re-renders.
+ * The useAppStore facade preserves backward compatibility.
  */
 
 import { create } from 'zustand'
@@ -26,7 +27,128 @@ let toastCounter = 0
 
 export type ModalId = 'settings' | 'dataLoader' | 'calibration' | null
 
-// ─── App State Interface ─────────────────────────────────────────
+// ─── Slice Interfaces ────────────────────────────────────────────
+
+export interface VisualState {
+  viewMode: ViewMode
+  setViewMode: (mode: ViewMode) => void
+  selectedNodeId: string | null
+  hoveredNodeId: string | null
+  selectedClusterId: number | null
+  selectNode: (id: string | null) => void
+  hoverNode: (id: string | null) => void
+  selectCluster: (id: number | null) => void
+}
+
+export interface DataState {
+  graphData: GraphData | null
+  embeddingData: EmbeddingData | null
+  setGraphData: (data: GraphData | null) => void
+  setEmbeddingData: (data: EmbeddingData | null) => void
+}
+
+export interface GestureState {
+  activeGesture: GestureEvent | null
+  lastGestureType: GestureType | null
+  trackingEnabled: boolean
+  setActiveGesture: (gesture: GestureEvent | null) => void
+  setTrackingEnabled: (enabled: boolean) => void
+}
+
+export interface ConfigState {
+  config: AppConfig
+  updateConfig: (partial: Partial<AppConfig>) => void
+  calibrated: boolean
+  setCalibrated: (calibrated: boolean) => void
+}
+
+export interface UIState {
+  error: string | null
+  setError: (error: string | null) => void
+  toasts: Toast[]
+  addToast: (message: string, severity?: Toast['severity'], dismissMs?: number) => void
+  removeToast: (id: string) => void
+  activeModal: ModalId
+  setActiveModal: (modal: ModalId) => void
+}
+
+// ─── Visual State ─────────────────────────────────────────
+
+export const useVisualStore = create<VisualState>((set) => ({
+  viewMode: 'graph',
+  setViewMode: (mode) => set({ viewMode: mode }),
+  selectedNodeId: null,
+  hoveredNodeId: null,
+  selectedClusterId: null,
+  selectNode: (id) => set({ selectedNodeId: id }),
+  hoverNode: (id) => set({ hoveredNodeId: id }),
+  selectCluster: (id) => set({ selectedClusterId: id }),
+}))
+
+// ─── Data State ───────────────────────────────────────────
+
+export const useDataStore = create<DataState>((set) => ({
+  graphData: null,
+  embeddingData: null,
+  setGraphData: (data) => set({ graphData: data }),
+  setEmbeddingData: (data) => set({ embeddingData: data }),
+}))
+
+// ─── Gesture State ────────────────────────────────────────
+
+export const useGestureStore = create<GestureState>((set) => ({
+  activeGesture: null,
+  lastGestureType: null,
+  trackingEnabled: true,
+  setActiveGesture: (gesture) => set({
+    activeGesture: gesture,
+    lastGestureType: gesture?.type ?? null
+  }),
+  setTrackingEnabled: (enabled) => set({ trackingEnabled: enabled }),
+}))
+
+// ─── Config State ─────────────────────────────────────────
+
+export const useConfigStore = create<ConfigState>((set) => ({
+  config: DEFAULT_CONFIG,
+  updateConfig: (partial) => set((state) => ({
+    config: { ...state.config, ...partial }
+  })),
+  calibrated: false,
+  setCalibrated: (calibrated) => set({ calibrated }),
+}))
+
+// ─── UI State (toasts, modals, errors) ────────────────────
+
+export const useUIStore = create<UIState>((set) => ({
+  error: null,
+  setError: (error) => set({ error }),
+  toasts: [],
+  addToast: (message, severity = 'error', dismissMs = DEFAULT_DISMISS_MS) =>
+    set((state) => {
+      const newToast: Toast = {
+        id: `toast-${++toastCounter}-${Date.now()}`,
+        message,
+        severity,
+        dismissMs,
+        timestamp: Date.now()
+      }
+      const updated = [...state.toasts, newToast]
+      // Evict oldest if over the limit
+      while (updated.length > MAX_TOASTS) {
+        updated.shift()
+      }
+      return { toasts: updated }
+    }),
+  removeToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id)
+    })),
+  activeModal: null,
+  setActiveModal: (modal) => set({ activeModal: modal }),
+}))
+
+// ─── Combined App State (backward compatibility) ─────────
 
 export interface AppState {
   // View state
@@ -76,73 +198,114 @@ export interface AppState {
   setActiveModal: (modal: ModalId) => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
-  // View
-  viewMode: 'graph',
-  setViewMode: (mode) => set({ viewMode: mode }),
+/** Combined store facade -- preserves backward compatibility */
+export function useAppStore(): AppState {
+  const visual = useVisualStore()
+  const data = useDataStore()
+  const gesture = useGestureStore()
+  const config = useConfigStore()
+  const ui = useUIStore()
 
-  // Selection
-  selectedNodeId: null,
-  hoveredNodeId: null,
-  selectedClusterId: null,
-  selectNode: (id) => set({ selectedNodeId: id }),
-  hoverNode: (id) => set({ hoveredNodeId: id }),
-  selectCluster: (id) => set({ selectedClusterId: id }),
+  return {
+    ...visual,
+    ...data,
+    ...gesture,
+    ...config,
+    ...ui,
+    // Override setGraphData/setEmbeddingData to also set viewMode
+    setGraphData: (d: GraphData | null) => {
+      data.setGraphData(d)
+      visual.setViewMode('graph')
+    },
+    setEmbeddingData: (d: EmbeddingData | null) => {
+      data.setEmbeddingData(d)
+      visual.setViewMode('manifold')
+    },
+  }
+}
 
-  // Data
-  graphData: null,
-  embeddingData: null,
-  setGraphData: (data) => set({ graphData: data, viewMode: 'graph' }),
-  setEmbeddingData: (data) => set({ embeddingData: data, viewMode: 'manifold' }),
+// ─── Static helpers for non-hook access (backward compatibility) ──
 
-  // Gestures
-  activeGesture: null,
-  lastGestureType: null,
-  trackingEnabled: true,
-  setActiveGesture: (gesture) => set({
-    activeGesture: gesture,
-    lastGestureType: gesture?.type ?? null
-  }),
-  setTrackingEnabled: (enabled) => set({ trackingEnabled: enabled }),
+/** Get combined state snapshot (for use outside React components) */
+useAppStore.getState = (): AppState => {
+  const visual = useVisualStore.getState()
+  const data = useDataStore.getState()
+  const gesture = useGestureStore.getState()
+  const config = useConfigStore.getState()
+  const ui = useUIStore.getState()
 
-  // Config
-  config: DEFAULT_CONFIG,
-  updateConfig: (partial) => set((state) => ({
-    config: { ...state.config, ...partial }
-  })),
+  return {
+    ...visual,
+    ...data,
+    ...gesture,
+    ...config,
+    ...ui,
+    setGraphData: (d: GraphData | null) => {
+      data.setGraphData(d)
+      visual.setViewMode('graph')
+    },
+    setEmbeddingData: (d: EmbeddingData | null) => {
+      data.setEmbeddingData(d)
+      visual.setViewMode('manifold')
+    },
+  }
+}
 
-  // Calibration
-  calibrated: false,
-  setCalibrated: (calibrated) => set({ calibrated }),
+/** Set combined state (for use in tests and non-hook contexts) */
+useAppStore.setState = (partial: Partial<AppState>): void => {
+  const {
+    viewMode, selectedNodeId, hoveredNodeId, selectedClusterId,
+    graphData, embeddingData,
+    activeGesture, lastGestureType, trackingEnabled,
+    config, calibrated,
+    error, toasts, activeModal,
+    ...rest
+  } = partial as Partial<AppState>
 
-  // Error (backward compatible — also adds a toast)
-  error: null,
-  setError: (error) => set({ error }),
+  // Visual state
+  const visualPartial: Partial<VisualState> = {}
+  if (viewMode !== undefined) visualPartial.viewMode = viewMode
+  if (selectedNodeId !== undefined) visualPartial.selectedNodeId = selectedNodeId
+  if (hoveredNodeId !== undefined) visualPartial.hoveredNodeId = hoveredNodeId
+  if (selectedClusterId !== undefined) visualPartial.selectedClusterId = selectedClusterId
+  if (Object.keys(visualPartial).length > 0) useVisualStore.setState(visualPartial)
 
-  // Toast queue
-  toasts: [],
-  addToast: (message, severity = 'error', dismissMs = DEFAULT_DISMISS_MS) =>
-    set((state) => {
-      const newToast: Toast = {
-        id: `toast-${++toastCounter}-${Date.now()}`,
-        message,
-        severity,
-        dismissMs,
-        timestamp: Date.now()
-      }
-      const updated = [...state.toasts, newToast]
-      // Evict oldest if over the limit
-      while (updated.length > MAX_TOASTS) {
-        updated.shift()
-      }
-      return { toasts: updated }
-    }),
-  removeToast: (id) =>
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id)
-    })),
+  // Data state
+  const dataPartial: Partial<DataState> = {}
+  if (graphData !== undefined) dataPartial.graphData = graphData
+  if (embeddingData !== undefined) dataPartial.embeddingData = embeddingData
+  if (Object.keys(dataPartial).length > 0) useDataStore.setState(dataPartial)
 
-  // Modal management
-  activeModal: null,
-  setActiveModal: (modal) => set({ activeModal: modal })
-}))
+  // Gesture state
+  const gesturePartial: Partial<GestureState> = {}
+  if (activeGesture !== undefined) gesturePartial.activeGesture = activeGesture
+  if (lastGestureType !== undefined) gesturePartial.lastGestureType = lastGestureType
+  if (trackingEnabled !== undefined) gesturePartial.trackingEnabled = trackingEnabled
+  if (Object.keys(gesturePartial).length > 0) useGestureStore.setState(gesturePartial)
+
+  // Config state
+  const configPartial: Partial<ConfigState> = {}
+  if (config !== undefined) configPartial.config = config
+  if (calibrated !== undefined) configPartial.calibrated = calibrated
+  if (Object.keys(configPartial).length > 0) useConfigStore.setState(configPartial)
+
+  // UI state
+  const uiPartial: Partial<UIState> = {}
+  if (error !== undefined) uiPartial.error = error
+  if (toasts !== undefined) uiPartial.toasts = toasts
+  if (activeModal !== undefined) uiPartial.activeModal = activeModal
+  if (Object.keys(uiPartial).length > 0) useUIStore.setState(uiPartial)
+}
+
+/** Subscribe to state changes across all stores */
+useAppStore.subscribe = (listener: (state: AppState) => void): (() => void) => {
+  const notify = () => listener(useAppStore.getState())
+  const unsubs = [
+    useVisualStore.subscribe(notify),
+    useDataStore.subscribe(notify),
+    useGestureStore.subscribe(notify),
+    useConfigStore.subscribe(notify),
+    useUIStore.subscribe(notify),
+  ]
+  return () => unsubs.forEach((unsub) => unsub())
+}

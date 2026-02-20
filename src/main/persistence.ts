@@ -6,8 +6,8 @@
  */
 
 import { app } from 'electron'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync } from 'fs'
-import { join, dirname } from 'path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync, readdirSync, unlinkSync } from 'fs'
+import { join, dirname, basename } from 'path'
 import { DEFAULT_CONFIG } from '@shared/protocol'
 import type { AppConfig, CalibrationProfile, PersistedData } from '@shared/protocol'
 
@@ -27,6 +27,27 @@ const STORE_DEFAULTS: StoreSchema = {
   calibrated: false
 }
 
+/**
+ * Rotate backup files, keeping only the most recent `maxBackups`.
+ * Backup files are expected to have the format: `<filePath>.backup.<timestamp>`.
+ */
+export function rotateBackups(filePath: string, maxBackups: number = 3): void {
+  const dir = dirname(filePath)
+  const base = basename(filePath)
+  try {
+    const files = readdirSync(dir)
+      .filter(f => f.startsWith(base + '.backup.'))
+      .sort() // Oldest first (timestamp in name)
+
+    while (files.length > maxBackups) {
+      const oldest = files.shift()!
+      unlinkSync(join(dir, oldest))
+    }
+  } catch {
+    // Ignore rotation errors — best-effort cleanup
+  }
+}
+
 class JsonStore<T extends Record<string, unknown>> {
   private filePath: string
   private data: T
@@ -42,6 +63,7 @@ class JsonStore<T extends Record<string, unknown>> {
           const backupPath = `${this.filePath}.backup.${Date.now()}`
           copyFileSync(this.filePath, backupPath)
         } catch { /* ignore backup failure */ }
+        rotateBackups(this.filePath)
         this.data = JSON.parse(JSON.stringify(defaults)) as T
         this.save()
       }

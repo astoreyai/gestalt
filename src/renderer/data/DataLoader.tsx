@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react'
-import { validateGraphData, validateEmbeddingData, validateData } from './validators'
+import { validateData } from './validators'
 import type { GraphData, EmbeddingData } from '@shared/protocol'
 
 export interface DataLoaderProps {

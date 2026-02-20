@@ -3,7 +3,7 @@
  * Routes gestures to the appropriate handler based on active view mode.
  */
 
-import type { GestureEvent, Command, ViewMode } from '@shared/protocol'
+import type { GestureEvent, ViewMode } from '@shared/protocol'
 import { GestureType, GesturePhase } from '@shared/protocol'
 
 export interface DispatchContext {
