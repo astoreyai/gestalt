@@ -9,8 +9,9 @@
  *   5. Provide a clean start / stop / destroy lifecycle.
  */
 
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
-import type { HandLandmarkerResult, NormalizedLandmark } from '@mediapipe/tasks-vision'
+// P2-50: MediaPipe is now lazy-loaded inside initialize() to avoid
+// bundling the large WASM assets at startup.
+import type { HandLandmarker as HandLandmarkerType, HandLandmarkerResult, NormalizedLandmark } from '@mediapipe/tasks-vision'
 import type { Hand, Handedness, LandmarkFrame, Landmark } from '@shared/protocol'
 import { normalizeLandmarks } from './normalize'
 import { LandmarkSmoother, type OneEuroFilterConfig } from './filters'
@@ -51,7 +52,7 @@ export type ErrorCallback = (error: Error) => void
 // ─── HandTracker Class ───────────────────────────────────────────
 
 export class HandTracker {
-  private _handLandmarker: HandLandmarker | null = null
+  private _handLandmarker: HandLandmarkerType | null = null
   private _stream: MediaStream | null = null
   private _video: HTMLVideoElement | null = null
   private _animFrameId: number | null = null
@@ -110,6 +111,9 @@ export class HandTracker {
     this._assertNotDestroyed()
 
     try {
+      // P2-50: Dynamic import so MediaPipe WASM is not bundled eagerly
+      const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision')
+
       const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
 
       this._handLandmarker = await HandLandmarker.createFromOptions(vision, {
@@ -272,16 +276,20 @@ export class HandTracker {
         landmarks = smoother.smooth(landmarks, timestampSec)
       }
 
-      const worldLandmarks: Landmark[] = rawWorldLandmarks.map((wl) => ({
-        x: wl.x,
-        y: wl.y,
-        z: wl.z
-      }))
+      // P2-47: Build worldLandmarks array directly without intermediate map.
+      // rawWorldLandmarks already have {x, y, z} shape; just copy the values.
+      const worldLandmarks: Landmark[] = new Array(rawWorldLandmarks.length)
+      for (let j = 0; j < rawWorldLandmarks.length; j++) {
+        const wl = rawWorldLandmarks[j]
+        worldLandmarks[j] = { x: wl.x, y: wl.y, z: wl.z }
+      }
 
+      // P2-47: Use smoothed landmarks directly -- they are already in the right
+      // {x, y, z} format from smooth(), so no need to re-map them.
       hands.push({
         handedness,
-        landmarks: landmarks.map(l => ({ x: l.x, y: l.y, z: l.z })),
-        worldLandmarks: worldLandmarks.map(l => ({ x: l.x, y: l.y, z: l.z })),
+        landmarks,
+        worldLandmarks,
         score
       })
     }

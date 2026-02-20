@@ -29,8 +29,11 @@ export const GraphEdgeSchema = z.object({
 })
 
 export const GraphDataSchema = z.object({
-  nodes: z.array(GraphNodeSchema).min(1, 'Graph must have at least one node'),
-  edges: z.array(GraphEdgeSchema),
+  nodes: z.array(GraphNodeSchema)
+    .min(1, 'Graph must have at least one node')
+    .max(10_000_000, 'Node count exceeds 10 million limit'),
+  edges: z.array(GraphEdgeSchema)
+    .max(50_000_000, 'Edge count exceeds 50 million limit'),
   metadata: z.record(z.unknown()).optional()
 })
 
@@ -60,7 +63,9 @@ export const ClusterSchema = z.object({
 })
 
 export const EmbeddingDataSchema = z.object({
-  points: z.array(EmbeddingPointSchema).min(1, 'Embedding must have at least one point'),
+  points: z.array(EmbeddingPointSchema)
+    .min(1, 'Embedding must have at least one point')
+    .max(10_000_000, 'Point count exceeds 10 million limit'),
   clusters: z.array(ClusterSchema).optional(),
   metadata: z.record(z.unknown()).optional()
 })

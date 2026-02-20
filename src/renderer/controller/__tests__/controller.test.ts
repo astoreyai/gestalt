@@ -73,7 +73,7 @@ describe('Gesture Dispatcher', () => {
 
     it('should dispatch rotate on twist hold', () => {
       const action = dispatchGesture(
-        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { angle: 30 }),
+        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { rotation: 30 }),
         graphCtx
       )
       expect(action.type).toBe('rotate')
@@ -99,7 +99,7 @@ describe('Gesture Dispatcher', () => {
 
     it('should dispatch zoom on two hand pinch hold', () => {
       const action = dispatchGesture(
-        makeGesture(GestureType.TwoHandPinch, GesturePhase.Hold, 'right', { distance: 0.8 }),
+        makeGesture(GestureType.TwoHandPinch, GesturePhase.Hold, 'right', { handDistance: 0.8 }),
         graphCtx
       )
       expect(action.type).toBe('zoom')
@@ -166,7 +166,7 @@ describe('Gesture Dispatcher', () => {
 
     it('should dispatch rotate on twist hold', () => {
       const action = dispatchGesture(
-        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { angle: 15 }),
+        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { rotation: 15 }),
         manifoldCtx
       )
       expect(action.type).toBe('rotate')

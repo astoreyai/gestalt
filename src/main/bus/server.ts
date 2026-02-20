@@ -4,7 +4,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws'
-import { randomBytes } from 'crypto'
+import { randomBytes, timingSafeEqual } from 'crypto'
 import { URL } from 'url'
 import type { BusMessage, BusGestureMessage } from '@shared/bus-protocol'
 import { ProgramRegistry, type RegisteredProgram } from './registry'
@@ -91,16 +91,28 @@ export class BusServer {
 
         this.wss.on('connection', (ws, req) => {
           // Token authentication
+          // NOTE (P2-31 accepted risk): Token is passed via URL query parameter.
+          // This is a design trade-off — WebSocket upgrade requests do not support
+          // custom headers in browser clients. The risk is mitigated by binding to
+          // 127.0.0.1 only and using short-lived per-session tokens.
           if (this.config.authenticate !== false) {
             const url = new URL(req.url ?? '', `http://${req.headers.host ?? 'localhost'}`)
             const clientToken = url.searchParams.get('token')
-            if (!clientToken || clientToken !== this.token) {
+            if (
+              !clientToken ||
+              clientToken.length !== this.token.length ||
+              !timingSafeEqual(Buffer.from(clientToken), Buffer.from(this.token))
+            ) {
               ws.close(1008, 'Unauthorized')
               return
             }
           }
 
           const clientId = this.connections.addConnection(ws)
+          if (!clientId) {
+            // Connection limit reached — ws already closed by ConnectionManager
+            return
+          }
           const ip = req.socket.remoteAddress ?? 'unknown'
           if (process.env.NODE_ENV !== 'production') {
             console.log(`[BusServer] Client connected: ${clientId} from ${ip}`)

@@ -90,8 +90,22 @@ export const useVisualStore = create<VisualState>((set) => ({
 export const useDataStore = create<DataState>((set) => ({
   graphData: null,
   embeddingData: null,
-  setGraphData: (data) => set({ graphData: data }),
-  setEmbeddingData: (data) => set({ embeddingData: data }),
+  // P1-23: Zustand's shallow merge already replaces the reference, so the old
+  // graphData/embeddingData becomes eligible for GC once set() completes.
+  // We null out first in a separate set() call to break any closure references
+  // that might hold the old data, then assign the new data.
+  setGraphData: (data) => {
+    set({ graphData: null })
+    if (data !== null) {
+      set({ graphData: data })
+    }
+  },
+  setEmbeddingData: (data) => {
+    set({ embeddingData: null })
+    if (data !== null) {
+      set({ embeddingData: data })
+    }
+  },
 }))
 
 // ─── Gesture State ────────────────────────────────────────
@@ -117,6 +131,9 @@ export const useConfigStore = create<ConfigState>((set) => ({
   calibrated: false,
   setCalibrated: (calibrated) => set({ calibrated }),
 }))
+
+/** Convenience alias for calibration state (lives in ConfigStore) (P1-21) */
+export const useCalibrationStore = useConfigStore
 
 // ─── UI State (toasts, modals, errors) ────────────────────
 
@@ -198,7 +215,15 @@ export interface AppState {
   setActiveModal: (modal: ModalId) => void
 }
 
-/** Combined store facade -- preserves backward compatibility */
+/**
+ * @deprecated Prefer individual slice hooks for better performance:
+ *   useVisualStore, useDataStore, useGestureStore, useConfigStore, useUIStore
+ *
+ * This facade spreads 5 stores together on every call, which triggers a
+ * full-tree re-render whenever ANY slice changes (P1-21).
+ * Use Zustand selectors on individual stores instead:
+ *   const viewMode = useVisualStore(s => s.viewMode)
+ */
 export function useAppStore(): AppState {
   const visual = useVisualStore()
   const data = useDataStore()

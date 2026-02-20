@@ -41,11 +41,22 @@ export const GraphDataSchema = z.object({
 /**
  * Parse a JSON string into validated GraphData.
  *
+ * The function is async to yield the event loop between heavy operations
+ * (JSON.parse, Zod validation, edge-reference check) so the renderer
+ * thread stays responsive for large files.
+ *
+ * NOTE: JSON.parse itself is synchronous and blocks until complete.
+ * For truly large files (>1M nodes) a Web Worker with a streaming JSON
+ * parser (e.g. oboe.js / clarinet) would be ideal.
+ *
  * @param json - The JSON string to parse
  * @returns Validated GraphData object
  * @throws Error with descriptive message if JSON is invalid or doesn't match schema
  */
-export function parseJsonGraph(json: string): GraphData {
+export async function parseJsonGraph(json: string): Promise<GraphData> {
+  // Yield before the synchronous JSON.parse
+  await new Promise(resolve => setTimeout(resolve, 0))
+
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
@@ -53,6 +64,9 @@ export function parseJsonGraph(json: string): GraphData {
     const message = e instanceof Error ? e.message : 'Unknown error'
     throw new Error(`Invalid JSON: ${message}`)
   }
+
+  // Yield before Zod schema validation
+  await new Promise(resolve => setTimeout(resolve, 0))
 
   const result = GraphDataSchema.safeParse(parsed)
   if (!result.success) {

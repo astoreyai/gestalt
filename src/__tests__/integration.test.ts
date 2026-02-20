@@ -115,18 +115,29 @@ function makePointLandmarks(): Landmark[] {
 
 function makeFistLandmarks(): Landmark[] {
   const lm = makeOpenPalmLandmarks()
-  // Curl all fingers
-  for (const [, indices] of [
-    ['thumb', [LANDMARK.THUMB_IP, LANDMARK.THUMB_TIP]],
-    ['index', [LANDMARK.INDEX_DIP, LANDMARK.INDEX_TIP]],
-    ['middle', [LANDMARK.MIDDLE_DIP, LANDMARK.MIDDLE_TIP]],
-    ['ring', [LANDMARK.RING_DIP, LANDMARK.RING_TIP]],
-    ['pinky', [LANDMARK.PINKY_DIP, LANDMARK.PINKY_TIP]]
-  ] as const) {
-    const [dip, tip] = indices as unknown as number[]
-    lm[dip] = { x: lm[dip].x, y: lm[dip].y + 0.12, z: 0.08 }
-    lm[tip] = { x: lm[tip].x, y: lm[tip].y + 0.20, z: 0.10 }
-  }
+  // Curl all fingers using zigzag pattern (DIP goes back up, TIP even higher)
+  // This creates tight angles that yield curl > 0.6
+
+  // Index: MCP=(0.44,0.55,0) PIP=(0.43,0.45,0) → zigzag back
+  lm[LANDMARK.INDEX_DIP] = { x: 0.43, y: 0.50, z: 0.01 }
+  lm[LANDMARK.INDEX_TIP] = { x: 0.43, y: 0.46, z: 0.02 }
+
+  // Middle: MCP=(0.50,0.53,0) PIP=(0.50,0.42,0) → zigzag back
+  lm[LANDMARK.MIDDLE_DIP] = { x: 0.50, y: 0.47, z: 0.01 }
+  lm[LANDMARK.MIDDLE_TIP] = { x: 0.50, y: 0.43, z: 0.02 }
+
+  // Ring: MCP=(0.56,0.55,0) PIP=(0.56,0.45,0) → zigzag back
+  lm[LANDMARK.RING_DIP] = { x: 0.56, y: 0.50, z: 0.01 }
+  lm[LANDMARK.RING_TIP] = { x: 0.56, y: 0.46, z: 0.02 }
+
+  // Pinky: MCP=(0.62,0.58,0) PIP=(0.62,0.48,0) → zigzag back
+  lm[LANDMARK.PINKY_DIP] = { x: 0.62, y: 0.53, z: 0.01 }
+  lm[LANDMARK.PINKY_TIP] = { x: 0.62, y: 0.49, z: 0.02 }
+
+  // Thumb: CMC=(0.42,0.65,-0.01) MCP=(0.38,0.58,-0.02) → zigzag back
+  lm[LANDMARK.THUMB_IP] = { x: 0.41, y: 0.62, z: 0.00 }
+  lm[LANDMARK.THUMB_TIP] = { x: 0.39, y: 0.58, z: 0.01 }
+
   return lm
 }
 
@@ -586,7 +597,7 @@ describe('Integration: Full Pipeline', () => {
   })
 
   describe('Data → Validators → Graph/Manifold modules', () => {
-    it('should validate and parse JSON graph data end-to-end', () => {
+    it('should validate and parse JSON graph data end-to-end', async () => {
       const graphJson = JSON.stringify({
         nodes: [
           { id: 'a', label: 'Node A' },
@@ -600,7 +611,7 @@ describe('Integration: Full Pipeline', () => {
       })
 
       // Parse via JSON parser
-      const graphData = parseJsonGraph(graphJson)
+      const graphData = await parseJsonGraph(graphJson)
       expect(graphData.nodes).toHaveLength(3)
       expect(graphData.edges).toHaveLength(2)
 
@@ -722,13 +733,12 @@ describe('Integration: Full Pipeline', () => {
       const events = engine.processFrame(frame)
 
       const fistEvent = events.find(e => e.type === GestureType.Fist)
-      if (fistEvent) {
-        const command = mapGestureToCommand(fistEvent)
-        expect(command).not.toBeNull()
-        expect(command!.target).toBe('keyboard')
-        expect((command as KeyboardCommand).action).toBe('press')
-        expect((command as KeyboardCommand).key).toBe('Escape')
-      }
+      expect(fistEvent).toBeDefined()
+      const command = mapGestureToCommand(fistEvent!)
+      expect(command).not.toBeNull()
+      expect(command!.target).toBe('keyboard')
+      expect((command as KeyboardCommand).action).toBe('press')
+      expect((command as KeyboardCommand).key).toBe('Escape')
     })
 
     it('should handle multi-gesture frame with bus fanout', () => {

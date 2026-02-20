@@ -19,10 +19,10 @@ export type GraphFormat = 'json' | 'graphml'
  * @returns Parsed and validated GraphData
  * @throws Error if content is invalid for the given format
  */
-export function parseGraph(
+export async function parseGraph(
   content: string,
   format: GraphFormat
-): GraphData {
+): Promise<GraphData> {
   switch (format) {
     case 'json':
       return parseJsonGraph(content)

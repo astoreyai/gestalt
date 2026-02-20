@@ -23,13 +23,18 @@ export class ConnectionManager {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private config: ConnectionManagerConfig
   private nextId = 1
+  private readonly MAX_CONNECTIONS = 200
 
   constructor(config: ConnectionManagerConfig) {
     this.config = config
   }
 
-  /** Add a new connection and return its ID */
-  addConnection(ws: WebSocket): string {
+  /** Add a new connection and return its ID, or null if limit reached */
+  addConnection(ws: WebSocket): string | null {
+    if (this.connections.size >= this.MAX_CONNECTIONS) {
+      ws.close(1013, 'Maximum connections reached')
+      return null
+    }
     const id = `conn_${this.nextId++}`
     this.connections.set(id, {
       id,

@@ -12,11 +12,17 @@ import type { GraphData, GraphNode, GraphEdge } from '@shared/protocol'
  * - <data> elements for node/edge attributes (label, color, weight, size, etc.)
  * - <key> declarations for attribute type mapping
  *
+ * NOTE: DOMParser.parseFromString is inherently synchronous. For very
+ * large GraphML files a SAX/streaming parser (e.g. sax-js) running in a
+ * Web Worker would avoid blocking the main thread entirely.
+ *
  * @param xml - The GraphML XML string
  * @returns Parsed GraphData
  * @throws Error if XML is malformed or missing required elements
  */
-export function parseGraphML(xml: string): GraphData {
+export async function parseGraphML(xml: string): Promise<GraphData> {
+  // Yield to the event loop before the synchronous DOMParser call
+  await new Promise(resolve => setTimeout(resolve, 0))
   const parser = new DOMParser()
   const doc = parser.parseFromString(xml, 'application/xml')
 

@@ -220,14 +220,14 @@ describe('ConnectionManager', () => {
   })
 
   it('should remove connections', () => {
-    const id = manager.addConnection(createMockWs())
+    const id = manager.addConnection(createMockWs())!
     manager.removeConnection(id)
     expect(manager.size).toBe(0)
   })
 
   it('should mark connections alive', () => {
     const ws = createMockWs()
-    const id = manager.addConnection(ws)
+    const id = manager.addConnection(ws)!
     manager.markAlive(id)
     const conn = manager.getConnections().find(c => c.id === id)
     expect(conn?.alive).toBe(true)
@@ -373,6 +373,7 @@ describe('BusServer lifecycle', () => {
 describe('BusServer message validation', () => {
   let server: BusServer | null = null
   let port: number
+  const openClients: WebSocket[] = []
 
   beforeEach(async () => {
     port = await getAvailablePort()
@@ -381,6 +382,13 @@ describe('BusServer message validation', () => {
   })
 
   afterEach(async () => {
+    // Close all open clients before stopping server to avoid ECONNRESET
+    await Promise.all(openClients.map(ws => new Promise<void>(resolve => {
+      if (ws.readyState === WebSocket.CLOSED) return resolve()
+      ws.on('close', () => resolve())
+      ws.close()
+    })))
+    openClients.length = 0
     if (server) {
       await server.stop()
       server = null
@@ -390,7 +398,7 @@ describe('BusServer message validation', () => {
   function connectClient(): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://localhost:${port}`)
-      ws.on('open', () => resolve(ws))
+      ws.on('open', () => { openClients.push(ws); resolve(ws) })
       ws.on('error', reject)
     })
   }
@@ -571,7 +579,10 @@ describe('BusServer hardening', () => {
       ws.on('open', resolve)
       ws.on('error', reject)
     })
-    ws.close()
+    await new Promise<void>((resolve) => {
+      ws.on('close', () => resolve())
+      ws.close()
+    })
   })
 
   it('should reject messages exceeding maxPayload (64KB)', async () => {

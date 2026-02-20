@@ -22,18 +22,18 @@ import { CLUSTER_COLORS as GRAPH_CLUSTER_COLORS } from '../colors'
 // ──────────────────────────────────────────────────────────────────────
 
 describe('parseJsonGraph', () => {
-  it('should parse valid minimal graph data', () => {
+  it('should parse valid minimal graph data', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }],
       edges: []
     })
-    const result = parseJsonGraph(json)
+    const result = await parseJsonGraph(json)
     expect(result.nodes).toHaveLength(1)
     expect(result.nodes[0].id).toBe('a')
     expect(result.edges).toHaveLength(0)
   })
 
-  it('should parse valid graph with all optional fields', () => {
+  it('should parse valid graph with all optional fields', async () => {
     const json = JSON.stringify({
       nodes: [
         {
@@ -61,7 +61,7 @@ describe('parseJsonGraph', () => {
       ],
       metadata: { title: 'Test Graph' }
     })
-    const result = parseJsonGraph(json)
+    const result = await parseJsonGraph(json)
     expect(result.nodes).toHaveLength(2)
     expect(result.nodes[0].label).toBe('Node 1')
     expect(result.nodes[0].position).toEqual({ x: 1, y: 2, z: 3 })
@@ -74,83 +74,83 @@ describe('parseJsonGraph', () => {
     expect(result.metadata).toEqual({ title: 'Test Graph' })
   })
 
-  it('should throw on invalid JSON string', () => {
-    expect(() => parseJsonGraph('{invalid}')).toThrow('Invalid JSON')
+  it('should throw on invalid JSON string', async () => {
+    await expect(parseJsonGraph('{invalid}')).rejects.toThrow('Invalid JSON')
   })
 
-  it('should throw on empty nodes array', () => {
+  it('should throw on empty nodes array', async () => {
     const json = JSON.stringify({ nodes: [], edges: [] })
-    expect(() => parseJsonGraph(json)).toThrow('at least one node')
+    await expect(parseJsonGraph(json)).rejects.toThrow('at least one node')
   })
 
-  it('should throw on missing nodes field', () => {
+  it('should throw on missing nodes field', async () => {
     const json = JSON.stringify({ edges: [] })
-    expect(() => parseJsonGraph(json)).toThrow('Invalid graph data')
+    await expect(parseJsonGraph(json)).rejects.toThrow('Invalid graph data')
   })
 
-  it('should throw on node with empty id', () => {
+  it('should throw on node with empty id', async () => {
     const json = JSON.stringify({
       nodes: [{ id: '' }],
       edges: []
     })
-    expect(() => parseJsonGraph(json)).toThrow('non-empty string')
+    await expect(parseJsonGraph(json)).rejects.toThrow('non-empty string')
   })
 
-  it('should throw on node with negative size', () => {
+  it('should throw on node with negative size', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a', size: -1 }],
       edges: []
     })
-    expect(() => parseJsonGraph(json)).toThrow('positive')
+    await expect(parseJsonGraph(json)).rejects.toThrow('positive')
   })
 
-  it('should throw on edge with empty source', () => {
+  it('should throw on edge with empty source', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }],
       edges: [{ source: '', target: 'a' }]
     })
-    expect(() => parseJsonGraph(json)).toThrow('non-empty string')
+    await expect(parseJsonGraph(json)).rejects.toThrow('non-empty string')
   })
 
-  it('should throw on edge referencing non-existent source node', () => {
+  it('should throw on edge referencing non-existent source node', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }],
       edges: [{ source: 'missing', target: 'a' }]
     })
-    expect(() => parseJsonGraph(json)).toThrow('non-existent source node')
+    await expect(parseJsonGraph(json)).rejects.toThrow('non-existent source node')
   })
 
-  it('should throw on edge referencing non-existent target node', () => {
+  it('should throw on edge referencing non-existent target node', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }],
       edges: [{ source: 'a', target: 'missing' }]
     })
-    expect(() => parseJsonGraph(json)).toThrow('non-existent target node')
+    await expect(parseJsonGraph(json)).rejects.toThrow('non-existent target node')
   })
 
-  it('should throw on negative edge weight', () => {
+  it('should throw on negative edge weight', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }, { id: 'b' }],
       edges: [{ source: 'a', target: 'b', weight: -0.5 }]
     })
-    expect(() => parseJsonGraph(json)).toThrow('non-negative')
+    await expect(parseJsonGraph(json)).rejects.toThrow('non-negative')
   })
 
-  it('should accept edges with weight of 0', () => {
+  it('should accept edges with weight of 0', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }, { id: 'b' }],
       edges: [{ source: 'a', target: 'b', weight: 0 }]
     })
-    const result = parseJsonGraph(json)
+    const result = await parseJsonGraph(json)
     expect(result.edges[0].weight).toBe(0)
   })
 
-  it('should accept nodes without optional fields', () => {
+  it('should accept nodes without optional fields', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }, { id: 'b' }],
       edges: [{ source: 'a', target: 'b' }]
     })
-    const result = parseJsonGraph(json)
+    const result = await parseJsonGraph(json)
     expect(result.nodes[0].label).toBeUndefined()
     expect(result.nodes[0].position).toBeUndefined()
     expect(result.nodes[0].color).toBeUndefined()
@@ -158,7 +158,7 @@ describe('parseJsonGraph', () => {
     expect(result.edges[0].weight).toBeUndefined()
   })
 
-  it('should handle graph with many nodes (stress test)', () => {
+  it('should handle graph with many nodes (stress test)', async () => {
     const nodes = Array.from({ length: 100 }, (_, i) => ({
       id: `n${i}`,
       label: `Node ${i}`
@@ -168,21 +168,21 @@ describe('parseJsonGraph', () => {
       target: `n${i + 1}`
     }))
     const json = JSON.stringify({ nodes, edges })
-    const result = parseJsonGraph(json)
+    const result = await parseJsonGraph(json)
     expect(result.nodes).toHaveLength(100)
     expect(result.edges).toHaveLength(50)
   })
 
-  it('should throw on completely wrong type', () => {
-    expect(() => parseJsonGraph('"just a string"')).toThrow('Invalid graph data')
+  it('should throw on completely wrong type', async () => {
+    await expect(parseJsonGraph('"just a string"')).rejects.toThrow('Invalid graph data')
   })
 
-  it('should throw on array input', () => {
-    expect(() => parseJsonGraph('[]')).toThrow('Invalid graph data')
+  it('should throw on array input', async () => {
+    await expect(parseJsonGraph('[]')).rejects.toThrow('Invalid graph data')
   })
 
-  it('should throw on null input', () => {
-    expect(() => parseJsonGraph('null')).toThrow('Invalid graph data')
+  it('should throw on null input', async () => {
+    await expect(parseJsonGraph('null')).rejects.toThrow('Invalid graph data')
   })
 })
 
@@ -231,8 +231,8 @@ describe('parseGraphML', () => {
   </graph>
 </graphml>`
 
-  it('should parse valid GraphML with nodes and edges', () => {
-    const result = parseGraphML(validGraphML)
+  it('should parse valid GraphML with nodes and edges', async () => {
+    const result = await parseGraphML(validGraphML)
     expect(result.nodes).toHaveLength(2)
     expect(result.nodes[0].id).toBe('n1')
     expect(result.nodes[0].label).toBe('Machine Learning')
@@ -247,7 +247,7 @@ describe('parseGraphML', () => {
     expect(result.edges[0].label).toBe('is-parent-of')
   })
 
-  it('should parse minimal GraphML with only nodes', () => {
+  it('should parse minimal GraphML with only nodes', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
@@ -255,12 +255,12 @@ describe('parseGraphML', () => {
     <node id="b"></node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.nodes).toHaveLength(2)
     expect(result.edges).toHaveLength(0)
   })
 
-  it('should handle node position attributes', () => {
+  it('should handle node position attributes', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <key id="x" for="node" attr.name="x" attr.type="double"/>
@@ -274,11 +274,11 @@ describe('parseGraphML', () => {
     </node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.nodes[0].position).toEqual({ x: 10.5, y: 20.3, z: -5 })
   })
 
-  it('should handle custom metadata attributes', () => {
+  it('should handle custom metadata attributes', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <key id="d0" for="node" attr.name="category" attr.type="string"/>
@@ -290,31 +290,31 @@ describe('parseGraphML', () => {
     </node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.nodes[0].metadata).toEqual({ category: 'research', importance: 5 })
   })
 
-  it('should throw on invalid XML', () => {
-    expect(() => parseGraphML('<invalid><xml>')).toThrow()
+  it('should throw on invalid XML', async () => {
+    await expect(parseGraphML('<invalid><xml>')).rejects.toThrow()
   })
 
-  it('should throw on XML without graph element', () => {
+  it('should throw on XML without graph element', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
 </graphml>`
-    expect(() => parseGraphML(xml)).toThrow('No <graph> element')
+    await expect(parseGraphML(xml)).rejects.toThrow('No <graph> element')
   })
 
-  it('should throw on graph without any nodes', () => {
+  it('should throw on graph without any nodes', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
   </graph>
 </graphml>`
-    expect(() => parseGraphML(xml)).toThrow('at least one node')
+    await expect(parseGraphML(xml)).rejects.toThrow('at least one node')
   })
 
-  it('should throw on edge referencing non-existent source', () => {
+  it('should throw on edge referencing non-existent source', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
@@ -322,10 +322,10 @@ describe('parseGraphML', () => {
     <edge source="missing" target="n1"></edge>
   </graph>
 </graphml>`
-    expect(() => parseGraphML(xml)).toThrow('non-existent source node')
+    await expect(parseGraphML(xml)).rejects.toThrow('non-existent source node')
   })
 
-  it('should throw on edge referencing non-existent target', () => {
+  it('should throw on edge referencing non-existent target', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
@@ -333,10 +333,10 @@ describe('parseGraphML', () => {
     <edge source="n1" target="missing"></edge>
   </graph>
 </graphml>`
-    expect(() => parseGraphML(xml)).toThrow('non-existent target node')
+    await expect(parseGraphML(xml)).rejects.toThrow('non-existent target node')
   })
 
-  it('should throw on edge missing source attribute', () => {
+  it('should throw on edge missing source attribute', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
@@ -344,10 +344,10 @@ describe('parseGraphML', () => {
     <edge target="n1"></edge>
   </graph>
 </graphml>`
-    expect(() => parseGraphML(xml)).toThrow('missing required')
+    await expect(parseGraphML(xml)).rejects.toThrow('missing required')
   })
 
-  it('should handle boolean type coercion in key definitions', () => {
+  it('should handle boolean type coercion in key definitions', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <key id="d0" for="node" attr.name="active" attr.type="boolean"/>
@@ -357,11 +357,11 @@ describe('parseGraphML', () => {
     </node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.nodes[0].metadata?.active).toBe(true)
   })
 
-  it('should handle integer type coercion', () => {
+  it('should handle integer type coercion', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <key id="d0" for="node" attr.name="count" attr.type="int"/>
@@ -371,11 +371,11 @@ describe('parseGraphML', () => {
     </node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.nodes[0].metadata?.count).toBe(42)
   })
 
-  it('should handle edge metadata attributes', () => {
+  it('should handle edge metadata attributes', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <key id="d0" for="edge" attr.name="type" attr.type="string"></key>
@@ -387,11 +387,11 @@ describe('parseGraphML', () => {
     </edge>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     expect(result.edges[0].metadata).toEqual({ type: 'directed' })
   })
 
-  it('should use key id as fallback name when attr.name is missing', () => {
+  it('should use key id as fallback name when attr.name is missing', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
@@ -400,7 +400,7 @@ describe('parseGraphML', () => {
     </node>
   </graph>
 </graphml>`
-    const result = parseGraphML(xml)
+    const result = await parseGraphML(xml)
     // Falls back to key ID "unknownKey" as the attribute name
     expect(result.nodes[0].metadata?.unknownKey).toBe('some value')
   })
@@ -411,28 +411,28 @@ describe('parseGraphML', () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe('parseGraph', () => {
-  it('should delegate to JSON parser for json format', () => {
+  it('should delegate to JSON parser for json format', async () => {
     const json = JSON.stringify({
       nodes: [{ id: 'a' }],
       edges: []
     })
-    const result = parseGraph(json, 'json')
+    const result = await parseGraph(json, 'json')
     expect(result.nodes[0].id).toBe('a')
   })
 
-  it('should delegate to GraphML parser for graphml format', () => {
+  it('should delegate to GraphML parser for graphml format', async () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <graphml>
   <graph id="G" edgedefault="undirected">
     <node id="n1"></node>
   </graph>
 </graphml>`
-    const result = parseGraph(xml, 'graphml')
+    const result = await parseGraph(xml, 'graphml')
     expect(result.nodes[0].id).toBe('n1')
   })
 
-  it('should throw for unsupported format', () => {
-    expect(() => parseGraph('data', 'csv' as 'json')).toThrow(
+  it('should throw for unsupported format', async () => {
+    await expect(parseGraph('data', 'csv' as 'json')).rejects.toThrow(
       'Unsupported graph format'
     )
   })

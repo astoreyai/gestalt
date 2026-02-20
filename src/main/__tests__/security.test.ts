@@ -9,10 +9,16 @@ import { isAllowedPath } from '../security'
 describe('isAllowedPath', () => {
   const home = homedir()
 
-  it('should allow files within home directory', () => {
+  it('should allow files within allowed subdirectories', () => {
     expect(isAllowedPath(join(home, 'Documents', 'data.json'))).toBe(true)
-    expect(isAllowedPath(join(home, 'graph.graphml'))).toBe(true)
-    expect(isAllowedPath(join(home, '.config', 'settings.json'))).toBe(true)
+    expect(isAllowedPath(join(home, 'Downloads', 'graph.graphml'))).toBe(true)
+    expect(isAllowedPath(join(home, '.config', 'tracking', 'settings.json'))).toBe(true)
+    expect(isAllowedPath(join(home, 'Desktop', 'file.txt'))).toBe(true)
+  })
+
+  it('should reject files in home root (outside allowed subdirs)', () => {
+    expect(isAllowedPath(join(home, 'graph.graphml'))).toBe(false)
+    expect(isAllowedPath(join(home, '.config', 'settings.json'))).toBe(false)
   })
 
   it('should reject /etc/passwd', () => {
@@ -30,9 +36,13 @@ describe('isAllowedPath', () => {
   })
 
   it('should reject paths outside allowed directories', () => {
-    expect(isAllowedPath('/tmp/secret.txt')).toBe(false)
     expect(isAllowedPath('/var/log/syslog')).toBe(false)
     expect(isAllowedPath('/root/.ssh/id_rsa')).toBe(false)
+    expect(isAllowedPath('/usr/share/data.json')).toBe(false)
+  })
+
+  it('should allow tmpdir paths', () => {
+    expect(isAllowedPath('/tmp/tracking-data.json')).toBe(true)
   })
 
   it('should allow extra allowed directories', () => {
@@ -49,8 +59,10 @@ describe('isAllowedPath', () => {
   it('should resolve symlinks and relative paths', () => {
     // Relative path that resolves to /etc/passwd should be rejected
     expect(isAllowedPath('../../../etc/passwd')).toBe(false)
-    // Relative path with dots that stays within home should be allowed
-    expect(isAllowedPath(join(home, 'Documents', '..', 'file.json'))).toBe(true)
+    // Relative path with dots that stays within allowed subdir should be allowed
+    expect(isAllowedPath(join(home, 'Documents', 'sub', '..', 'file.json'))).toBe(true)
+    // Relative path that escapes to home root should be rejected
+    expect(isAllowedPath(join(home, 'Documents', '..', 'file.json'))).toBe(false)
   })
 
   it('should handle empty string path', () => {
@@ -62,6 +74,7 @@ describe('isAllowedPath', () => {
 
   it('should handle paths with double slashes', () => {
     expect(isAllowedPath(home + '//Documents//file.json')).toBe(true)
+    expect(isAllowedPath(home + '//Downloads//data.csv')).toBe(true)
     expect(isAllowedPath('//etc//passwd')).toBe(false)
   })
 })
