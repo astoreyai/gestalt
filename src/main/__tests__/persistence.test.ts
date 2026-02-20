@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { join, dirname, basename } from 'path'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync } from 'fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, chmodSync } from 'fs'
 import { tmpdir } from 'os'
 import { createPersistence, rotateBackups, type PersistenceAPI } from '../persistence'
 import { DEFAULT_CONFIG, GestureType } from '@shared/protocol'
@@ -501,7 +501,6 @@ describe('Persistence edge cases (P1-27)', () => {
       // Simulate disk full by making the data directory read-only
       // so the atomic write to .tmp fails
       const dir = dirname(tempFile)
-      const { chmodSync } = require('fs')
 
       chmodSync(dir, 0o444) // read-only directory
 
