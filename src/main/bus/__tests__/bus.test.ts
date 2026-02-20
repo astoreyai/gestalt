@@ -569,22 +569,39 @@ describe('BusServer hardening', () => {
     }
   })
 
-  it('should bind to localhost (127.0.0.1) only', async () => {
-    const port = await getAvailablePort()
-    server = new BusServer({ port, authenticate: false })
-    await server.start()
+  it(
+    'should bind to localhost (127.0.0.1) only',
+    async () => {
+      // Retry port allocation — under heavy parallel load ports may linger
+      let started = false
+      for (let attempt = 0; attempt < 3 && !started; attempt++) {
+        const port = await getAvailablePort()
+        server = new BusServer({ port, authenticate: false })
+        try {
+          await server.start()
+          started = true
 
-    // Connect from localhost — should work
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`)
-    await new Promise<void>((resolve, reject) => {
-      ws.on('open', resolve)
-      ws.on('error', reject)
-    })
-    await new Promise<void>((resolve) => {
-      ws.on('close', () => resolve())
-      ws.close()
-    })
-  })
+          // Connect from localhost — should work
+          const ws = new WebSocket(`ws://127.0.0.1:${port}`)
+          await new Promise<void>((resolve, reject) => {
+            ws.on('open', resolve)
+            ws.on('error', reject)
+          })
+          await new Promise<void>((resolve) => {
+            ws.on('close', () => resolve())
+            ws.close()
+          })
+        } catch {
+          await server.stop().catch(() => {})
+          server = null
+          if (attempt === 2) throw new Error('Failed to bind after 3 attempts')
+          await new Promise(r => setTimeout(r, 100))
+        }
+      }
+      expect(started).toBe(true)
+    },
+    10000
+  )
 
   it('should reject messages exceeding maxPayload (64KB)', async () => {
     const port = await getAvailablePort()

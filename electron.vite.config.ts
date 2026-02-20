@@ -44,6 +44,9 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer')
       }
     },
+    worker: {
+      format: 'es'
+    },
     root: resolve(__dirname, 'src/renderer'),
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
