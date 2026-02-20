@@ -10,6 +10,7 @@ export interface DispatchContext {
   viewMode: ViewMode
   selectedNodeId: string | null
   selectedClusterId: number | null
+  oneHandedMode?: boolean
 }
 
 export interface SceneAction {
@@ -39,6 +40,12 @@ export function dispatchGesture(
 }
 
 function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): SceneAction {
+  // One-handed mode: remap Fist/LShape to zoom, OpenPalm to pan
+  if (context.oneHandedMode) {
+    const oneHandedAction = dispatchOneHandedAction(gesture)
+    if (oneHandedAction) return oneHandedAction
+  }
+
   switch (gesture.type) {
     case GestureType.Pinch:
       if (gesture.phase === GesturePhase.Onset) {
@@ -95,7 +102,59 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
   }
 }
 
+/**
+ * Handle one-handed mode remappings shared by both graph and manifold views.
+ * Returns a SceneAction if the gesture is remapped, or null to fall through
+ * to the default handler.
+ */
+function dispatchOneHandedAction(gesture: GestureEvent): SceneAction | null {
+  switch (gesture.type) {
+    case GestureType.Fist:
+      // Fist -> zoom in (onset starts, hold continues)
+      if (gesture.phase === GesturePhase.Onset || gesture.phase === GesturePhase.Hold) {
+        return {
+          type: 'zoom',
+          params: { delta: 1 }
+        }
+      }
+      return { type: 'noop', params: {} }
+
+    case GestureType.LShape:
+      // LShape -> zoom out
+      if (gesture.phase === GesturePhase.Onset || gesture.phase === GesturePhase.Hold) {
+        return {
+          type: 'zoom',
+          params: { delta: -1 }
+        }
+      }
+      return { type: 'noop', params: {} }
+
+    case GestureType.OpenPalm:
+      // OpenPalm -> pan/drag (instead of deselect)
+      if (gesture.phase === GesturePhase.Onset || gesture.phase === GesturePhase.Hold) {
+        return {
+          type: 'pan',
+          params: { dx: gesture.position.x, dy: gesture.position.y }
+        }
+      }
+      return { type: 'noop', params: {} }
+
+    case GestureType.TwoHandPinch:
+      // TwoHandPinch is not used in one-handed mode
+      return { type: 'noop', params: {} }
+
+    default:
+      return null
+  }
+}
+
 function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext): SceneAction {
+  // One-handed mode: remap Fist/LShape to zoom, OpenPalm to pan
+  if (context.oneHandedMode) {
+    const oneHandedAction = dispatchOneHandedAction(gesture)
+    if (oneHandedAction) return oneHandedAction
+  }
+
   switch (gesture.type) {
     case GestureType.Pinch:
       if (gesture.phase === GesturePhase.Onset) {

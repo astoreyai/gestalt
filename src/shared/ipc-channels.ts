@@ -42,6 +42,12 @@ export const IPC = {
   // Persistence
   PERSIST_GET_ALL: 'persist:get-all',
 
+  // Auto-update
+  UPDATE_CHECK: 'update:check',
+  UPDATE_STATUS: 'update:status',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_PROGRESS: 'update:progress',
+
   // App lifecycle
   APP_READY: 'app:ready',
   APP_QUIT: 'app:quit',

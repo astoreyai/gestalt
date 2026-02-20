@@ -37,6 +37,8 @@ export default defineConfig({
         'src/renderer/controller/Calibration.tsx',
         'src/renderer/data/DataLoader.tsx',
         'src/renderer/settings/Settings.tsx',
+        // ThemeProvider — applies DOM attributes, tested via integration / E2E
+        'src/renderer/theme/ThemeProvider.tsx',
         // Barrel re-exports — no logic to test
         'src/renderer/*/index.ts',
         // Electron main-process entry point — requires Electron runtime (app, BrowserWindow)

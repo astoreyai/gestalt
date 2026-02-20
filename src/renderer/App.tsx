@@ -11,6 +11,7 @@ import {
 import { GestureOverlay } from './controller/GestureOverlay'
 import { Calibration } from './controller/Calibration'
 import { DataLoader } from './data/DataLoader'
+import { RemoteLoader } from './data/RemoteLoader'
 import { Settings } from './settings/Settings'
 import { ForceGraph } from './graph/ForceGraph'
 import { PointCloud } from './manifold/PointCloud'
@@ -224,7 +225,7 @@ export function App(): React.ReactElement {
       {/* 3D Canvas */}
       <Canvas
         camera={{ position: [0, 0, 50], fov: 60, near: 0.1, far: 10000 }}
-        style={{ background: '#0a0a0a' }}
+        style={{ background: 'var(--canvas-bg)' }}
       >
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 10, 5]} intensity={0.8} />
@@ -305,6 +306,20 @@ export function App(): React.ReactElement {
               onEmbeddingLoaded={handleEmbeddingLoaded}
               onError={handleError}
             />
+            <div style={{
+              borderTop: '1px solid var(--border)',
+              margin: '12px 0',
+              paddingTop: 8
+            }}>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px 16px' }}>
+                Or load from URL:
+              </p>
+              <RemoteLoader
+                onGraphLoaded={handleGraphLoaded}
+                onEmbeddingLoaded={handleEmbeddingLoaded}
+                onError={handleError}
+              />
+            </div>
             <button
               onClick={handleCloseModal}
               style={{ ...buttonStyle, marginTop: 8, width: '100%' }}
@@ -364,10 +379,10 @@ function PlaceholderScene(): React.ReactElement {
           pointerEvents: 'none',
           whiteSpace: 'nowrap'
         }}>
-          <p style={{ fontSize: 18, margin: '0 0 8px 0', color: '#aaa' }}>
+          <p style={{ fontSize: 18, margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
             Drop a JSON file or click Load to begin
           </p>
-          <p style={{ fontSize: 13, margin: 0, color: '#666' }}>
+          <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
             Supports: Graph (nodes + edges) or Embeddings (points + clusters)
           </p>
         </div>
@@ -378,10 +393,10 @@ function PlaceholderScene(): React.ReactElement {
 
 const buttonStyle: React.CSSProperties = {
   padding: '6px 12px',
-  background: 'rgba(0,0,0,0.6)',
-  border: '1px solid #444',
+  background: 'var(--button-bg)',
+  border: '1px solid var(--border)',
   borderRadius: 6,
-  color: '#ccc',
+  color: 'var(--button-text)',
   cursor: 'pointer',
   fontSize: 12
 }

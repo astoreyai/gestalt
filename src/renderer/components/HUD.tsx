@@ -11,10 +11,10 @@ import { A11Y_COLORS, getTrackingStatusIndicator } from '../controller/a11y'
 /** Shared button style (matches App.tsx buttonStyle) */
 const buttonStyle: React.CSSProperties = {
   padding: '6px 12px',
-  background: 'rgba(0,0,0,0.6)',
-  border: '1px solid #444',
+  background: 'var(--button-bg)',
+  border: '1px solid var(--border)',
   borderRadius: 6,
-  color: '#ccc',
+  color: 'var(--button-text)',
   cursor: 'pointer',
   fontSize: 12
 }
@@ -48,7 +48,7 @@ export function HUD({ hasGraph, hasManifold, nodeCount, pointCount }: HUDProps):
       {/* Status */}
       <div style={{
         padding: '6px 14px',
-        background: 'rgba(0,0,0,0.6)',
+        background: 'var(--bg-overlay)',
         borderRadius: 8,
         fontSize: 13,
         display: 'flex',

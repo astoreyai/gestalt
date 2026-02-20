@@ -43,7 +43,7 @@ export function ViewSwitcher({
       style={{
         display: 'flex',
         gap: 4,
-        background: 'rgba(0,0,0,0.6)',
+        background: 'var(--bg-overlay)',
         borderRadius: 8,
         padding: 4
       }}
@@ -58,8 +58,8 @@ export function ViewSwitcher({
             padding: '6px 12px',
             border: 'none',
             borderRadius: 6,
-            background: currentView === mode ? '#4a9eff' : 'transparent',
-            color: isDisabled(mode) ? '#555' : (currentView === mode ? '#fff' : '#ccc'),
+            background: currentView === mode ? 'var(--accent)' : 'transparent',
+            color: isDisabled(mode) ? 'var(--text-muted)' : (currentView === mode ? '#fff' : 'var(--button-text)'),
             cursor: isDisabled(mode) ? 'not-allowed' : 'pointer',
             fontSize: 13,
             fontWeight: currentView === mode ? 'bold' : 'normal',

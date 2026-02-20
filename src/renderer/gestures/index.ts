@@ -40,3 +40,9 @@ export {
   DEFAULT_MAPPINGS,
   mapGestureToCommand
 } from './mappings'
+
+// One-handed accessibility mappings
+export {
+  ONE_HANDED_MAPPINGS,
+  getOneHandedMappings
+} from './one-handed'
