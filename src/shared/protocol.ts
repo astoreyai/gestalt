@@ -198,6 +198,7 @@ export interface PersistedData {
 // ─── App State Types ──────────────────────────────────────────────
 
 export type ViewMode = 'graph' | 'manifold' | 'split'
+export type ThemeMode = 'light' | 'dark' | 'system'
 
 export interface AppConfig {
   tracking: {
@@ -209,6 +210,7 @@ export interface AppConfig {
     minHoldDuration: number // ms before onset → hold
     cooldownDuration: number // ms after release before re-trigger
     sensitivity: number // 0-1, higher = more sensitive
+    oneHandedMode: boolean // Use single-hand gestures for all actions (accessibility)
   }
   input: {
     mouseSpeed: number // Multiplier for cursor movement
@@ -223,6 +225,7 @@ export interface AppConfig {
     lodEnabled: boolean
     maxFps: number
   }
+  theme: ThemeMode
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -234,7 +237,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   gestures: {
     minHoldDuration: 150,
     cooldownDuration: 200,
-    sensitivity: 0.5
+    sensitivity: 0.5,
+    oneHandedMode: false
   },
   input: {
     mouseSpeed: 1.0,
@@ -248,5 +252,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     defaultView: 'graph',
     lodEnabled: true,
     maxFps: 60
-  }
+  },
+  theme: 'system'
 }

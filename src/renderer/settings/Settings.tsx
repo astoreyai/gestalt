@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react'
-import type { AppConfig } from '@shared/protocol'
+import type { AppConfig, ThemeMode } from '@shared/protocol'
 
 export interface SettingsProps {
   config: AppConfig
@@ -11,7 +11,7 @@ export interface SettingsProps {
   onClose: () => void
 }
 
-type SettingsTab = 'tracking' | 'gestures' | 'input' | 'bus' | 'visualization'
+type SettingsTab = 'tracking' | 'gestures' | 'input' | 'bus' | 'visualization' | 'appearance'
 
 export function Settings({ config, onConfigChange, onClose }: SettingsProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTab>('tracking')
@@ -21,7 +21,8 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
     { id: 'gestures', label: 'Gestures' },
     { id: 'input', label: 'Input' },
     { id: 'bus', label: 'Bus' },
-    { id: 'visualization', label: 'Visuals' }
+    { id: 'visualization', label: 'Visuals' },
+    { id: 'appearance', label: 'Theme' }
   ]
 
   return (
@@ -31,8 +32,8 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
       right: 0,
       width: 360,
       height: '100%',
-      background: 'rgba(15, 15, 20, 0.95)',
-      borderLeft: '1px solid #333',
+      background: 'var(--panel-bg)',
+      borderLeft: '1px solid var(--border)',
       zIndex: 100,
       display: 'flex',
       flexDirection: 'column'
@@ -42,7 +43,7 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '12px 16px',
-        borderBottom: '1px solid #333'
+        borderBottom: '1px solid var(--border)'
       }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Settings</h3>
         <button
@@ -50,7 +51,7 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
           style={{
             background: 'none',
             border: 'none',
-            color: '#888',
+            color: 'var(--text-muted)',
             fontSize: 18,
             cursor: 'pointer'
           }}
@@ -59,7 +60,7 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
         </button>
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid #333' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -67,10 +68,10 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
             style={{
               flex: 1,
               padding: '8px 4px',
-              background: activeTab === tab.id ? '#1a1a2e' : 'transparent',
-              color: activeTab === tab.id ? '#4a9eff' : '#888',
+              background: activeTab === tab.id ? 'var(--input-bg)' : 'transparent',
+              color: activeTab === tab.id ? 'var(--accent)' : 'var(--text-muted)',
               border: 'none',
-              borderBottom: activeTab === tab.id ? '2px solid #4a9eff' : '2px solid transparent',
+              borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
               cursor: 'pointer',
               fontSize: 11,
               fontWeight: activeTab === tab.id ? 'bold' : 'normal'
@@ -97,6 +98,9 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
         {activeTab === 'visualization' && (
           <VisualizationSettings config={config} onChange={onConfigChange} />
         )}
+        {activeTab === 'appearance' && (
+          <AppearanceSettings config={config} onChange={onConfigChange} />
+        )}
       </div>
     </div>
   )
@@ -108,7 +112,7 @@ function Slider({ label, value, min, max, step, onChange }: {
 }): React.ReactElement {
   return (
     <div style={{ marginBottom: 16 }}>
-      <label style={{ fontSize: 13, color: '#ccc', display: 'block', marginBottom: 4 }}>
+      <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
         {label}: {value.toFixed(2)}
       </label>
       <input
@@ -127,12 +131,12 @@ function Toggle({ label, value, onChange }: {
 }): React.ReactElement {
   return (
     <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <span style={{ fontSize: 13, color: '#ccc' }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--button-text)' }}>{label}</span>
       <button
         onClick={() => onChange(!value)}
         style={{
           width: 44, height: 24, borderRadius: 12, border: 'none',
-          background: value ? '#4a9eff' : '#444',
+          background: value ? 'var(--accent)' : 'var(--border)',
           cursor: 'pointer', position: 'relative', transition: 'background 0.2s'
         }}
       >
@@ -195,6 +199,15 @@ function GestureSettings({ config, onChange }: {
         min={0.1} max={1.0} step={0.05}
         onChange={v => onChange({ gestures: { ...config.gestures, sensitivity: v } })}
       />
+      <Toggle
+        label="One-handed mode"
+        value={config.gestures.oneHandedMode}
+        onChange={v => onChange({ gestures: { ...config.gestures, oneHandedMode: v } })}
+      />
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+        Use single-hand gestures for all actions (accessibility).
+        Zoom uses Fist/L-shape instead of two-hand pinch.
+      </p>
     </>
   )
 }
@@ -231,7 +244,7 @@ function BusSettings({ config, onChange }: {
         onChange={v => onChange({ bus: { ...config.bus, enabled: v } })}
       />
       <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 13, color: '#ccc', display: 'block', marginBottom: 4 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
           Port
         </label>
         <input
@@ -239,8 +252,8 @@ function BusSettings({ config, onChange }: {
           value={config.bus.port}
           onChange={e => onChange({ bus: { ...config.bus, port: parseInt(e.target.value) || 9876 } })}
           style={{
-            width: '100%', padding: 8, background: '#1a1a2e', border: '1px solid #333',
-            borderRadius: 6, color: '#ccc', fontSize: 14
+            width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
+            borderRadius: 6, color: 'var(--button-text)', fontSize: 14
           }}
         />
       </div>
@@ -265,7 +278,7 @@ function VisualizationSettings({ config, onChange }: {
         onChange={v => onChange({ visualization: { ...config.visualization, maxFps: v } })}
       />
       <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 13, color: '#ccc', display: 'block', marginBottom: 4 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
           Default View
         </label>
         <select
@@ -274,8 +287,8 @@ function VisualizationSettings({ config, onChange }: {
             visualization: { ...config.visualization, defaultView: e.target.value as 'graph' | 'manifold' | 'split' }
           })}
           style={{
-            width: '100%', padding: 8, background: '#1a1a2e', border: '1px solid #333',
-            borderRadius: 6, color: '#ccc', fontSize: 14
+            width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
+            borderRadius: 6, color: 'var(--button-text)', fontSize: 14
           }}
         >
           <option value="graph">Graph</option>
@@ -283,6 +296,83 @@ function VisualizationSettings({ config, onChange }: {
           <option value="split">Split</option>
         </select>
       </div>
+    </>
+  )
+}
+
+/** Theme option labels */
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; description: string }> = [
+  { value: 'system', label: 'System', description: 'Follow OS preference' },
+  { value: 'light', label: 'Light', description: 'Light backgrounds' },
+  { value: 'dark', label: 'Dark', description: 'Dark backgrounds' }
+]
+
+function AppearanceSettings({ config, onChange }: {
+  config: AppConfig; onChange: (c: Partial<AppConfig>) => void
+}): React.ReactElement {
+  return (
+    <>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 8 }}>
+          Theme
+        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {THEME_OPTIONS.map(opt => {
+            const isActive = config.theme === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onChange({ theme: opt.value })}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 14px',
+                  background: isActive ? 'var(--accent-muted)' : 'transparent',
+                  border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  color: 'var(--text-primary)',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <div style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  border: `2px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+                  background: isActive ? 'var(--accent)' : 'transparent',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {isActive && (
+                    <div style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      background: '#fff'
+                    }} />
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: isActive ? 'bold' : 'normal' }}>
+                    {opt.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {opt.description}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+        When set to System, the theme automatically matches your operating system preference.
+      </p>
     </>
   )
 }

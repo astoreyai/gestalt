@@ -83,6 +83,25 @@ const api = {
   getAllPersistedData: (): Promise<PersistedData> =>
     ipcRenderer.invoke(IPC.PERSIST_GET_ALL),
 
+  // ─── Auto-Update ──────────────────────────────────────────────
+  checkForUpdate: (): Promise<unknown> =>
+    ipcRenderer.invoke(IPC.UPDATE_CHECK),
+
+  installUpdate: (): Promise<void> =>
+    ipcRenderer.invoke(IPC.UPDATE_INSTALL),
+
+  onUpdateStatus: (callback: (status: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.UPDATE_STATUS, handler)
+    return () => ipcRenderer.removeListener(IPC.UPDATE_STATUS, handler)
+  },
+
+  onUpdateProgress: (callback: (progress: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: unknown) => callback(progress)
+    ipcRenderer.on(IPC.UPDATE_PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IPC.UPDATE_PROGRESS, handler)
+  },
+
   // ─── Dev ──────────────────────────────────────────────────────
   echo: (msg: string): Promise<string> =>
     ipcRenderer.invoke(IPC.ECHO, msg)

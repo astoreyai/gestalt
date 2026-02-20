@@ -18,7 +18,8 @@ export const PartialAppConfigSchema = z.object({
   gestures: z.object({
     minHoldDuration: z.number().min(0).max(5000),
     cooldownDuration: z.number().min(0).max(5000),
-    sensitivity: z.number().min(0).max(1)
+    sensitivity: z.number().min(0).max(1),
+    oneHandedMode: z.boolean()
   }).partial().optional(),
   input: z.object({
     mouseSpeed: z.number().min(0.1).max(10),
@@ -32,7 +33,8 @@ export const PartialAppConfigSchema = z.object({
     defaultView: z.enum(['graph', 'manifold', 'split']),
     lodEnabled: z.boolean(),
     maxFps: z.number().int().min(1).max(240)
-  }).partial().optional()
+  }).partial().optional(),
+  theme: z.enum(['light', 'dark', 'system']).optional()
 }).partial()
 
 // ─── Calibration Profile Schema ──────────────────────────────────

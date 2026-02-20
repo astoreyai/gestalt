@@ -126,7 +126,7 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
       onDragLeave={() => setDragOver(false)}
       style={{
         padding: 24,
-        border: `2px dashed ${dragOver ? '#4a9eff' : '#444'}`,
+        border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 12,
         textAlign: 'center',
         background: dragOver ? 'rgba(74, 158, 255, 0.05)' : 'transparent',
@@ -152,7 +152,7 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
           <p style={{ fontSize: 16, marginBottom: 8 }}>
             Drop a file here or click to open
           </p>
-          <p style={{ fontSize: 12, color: '#888' }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             Supports JSON (graph or embedding) and GraphML
           </p>
         </>

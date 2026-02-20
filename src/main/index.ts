@@ -10,6 +10,7 @@ import { PartialAppConfigSchema, CalibrationProfileSchema, LandmarkFrameSchema, 
 import { BusServer } from './bus/server'
 import { RateLimiter } from './rate-limiter'
 import { deepMerge } from './deep-merge'
+import { initUpdater } from './updater'
 
 // ─── Global error handlers ──────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
@@ -274,6 +275,11 @@ app.whenReady().then(() => {
   initPersistence()
   setupIpcHandlers()
   createWindow()
+
+  // Initialize auto-updater (only in packaged builds, not dev mode)
+  if (!process.env.ELECTRON_RENDERER_URL && app.isPackaged) {
+    initUpdater()
+  }
 
   // Start the bus server if enabled
   const persistence = getPersistence()

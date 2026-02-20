@@ -7,12 +7,19 @@
  *   3. Run detection on every video frame using requestAnimationFrame.
  *   4. Convert results to `LandmarkFrame` and deliver them via a callback.
  *   5. Provide a clean start / stop / destroy lifecycle.
+ *
+ * Supports two modes:
+ *   - **Direct mode** (default): MediaPipe runs on the main renderer thread.
+ *   - **Worker mode** (`useWorker: true`): MediaPipe runs in a Web Worker with
+ *     OffscreenCanvas. Falls back to direct mode if OffscreenCanvas is unavailable
+ *     or if the worker fails to initialize (e.g. WebGL not available in worker).
  */
 
 // P2-50: MediaPipe is now lazy-loaded inside initialize() to avoid
 // bundling the large WASM assets at startup.
 import type { HandLandmarker as HandLandmarkerType, HandLandmarkerResult, NormalizedLandmark } from '@mediapipe/tasks-vision'
 import type { Hand, Handedness, LandmarkFrame, Landmark } from '@shared/protocol'
+import type { TrackingWorkerOutMessage } from '../../../workers/tracking.worker'
 import { normalizeLandmarks } from './normalize'
 import { LandmarkSmoother, type OneEuroFilterConfig } from './filters'
 
@@ -35,10 +42,17 @@ export interface HandTrackerConfig {
   smoothing?: OneEuroFilterConfig | false
   /** getUserMedia video constraints override. */
   videoConstraints?: MediaStreamConstraints['video']
+  /**
+   * Whether to run MediaPipe hand detection in a Web Worker with OffscreenCanvas.
+   * Falls back to direct mode if OffscreenCanvas is not available or the worker
+   * fails to initialize (e.g. WebGL not supported in workers).
+   * Default: false
+   */
+  useWorker?: boolean
 }
 
 const DEFAULT_CONFIG: Required<
-  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints'>
+  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker'>
 > = {
   numHands: 2,
   minHandDetectionConfidence: 0.7,
@@ -48,6 +62,13 @@ const DEFAULT_CONFIG: Required<
 
 export type FrameCallback = (frame: LandmarkFrame) => void
 export type ErrorCallback = (error: Error) => void
+
+// ─── OffscreenCanvas Support Detection ──────────────────────────
+
+/** Check whether OffscreenCanvas is supported in this environment. */
+export function supportsOffscreenCanvas(): boolean {
+  return typeof OffscreenCanvas !== 'undefined'
+}
 
 // ─── HandTracker Class ───────────────────────────────────────────
 
@@ -69,8 +90,17 @@ export class HandTracker {
   private _onFrame: FrameCallback | null = null
   private _onError: ErrorCallback | null = null
 
-  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints'>>
+  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker'>>
   private _videoConstraints: MediaStreamConstraints['video']
+
+  // ── Worker Mode State ─────────────────────────────────────────
+  private _useWorker: boolean
+  private _worker: Worker | null = null
+  private _workerCanvas: OffscreenCanvas | null = null
+  /** Tracks whether the worker has sent a 'ready' message. */
+  private _workerReady = false
+  /** Whether the worker failed to initialize and we fell back to direct mode. */
+  private _workerFallback = false
 
   constructor(config: HandTrackerConfig = {}) {
     this._config = {
@@ -84,6 +114,7 @@ export class HandTracker {
     }
     this._smoothingConfig = config.smoothing !== undefined ? config.smoothing : {}
     this._videoConstraints = config.videoConstraints ?? { width: 640, height: 480 }
+    this._useWorker = config.useWorker ?? false
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -103,53 +134,39 @@ export class HandTracker {
     return this._running
   }
 
+  /** Whether the tracker is operating in worker mode. */
+  get isWorkerMode(): boolean {
+    return this._useWorker && this._worker !== null && !this._workerFallback
+  }
+
   /**
    * Initialize the MediaPipe model and open the webcam.
    * Must be called before `start()`.
+   *
+   * In worker mode, creates a Web Worker and sends the OffscreenCanvas
+   * for MediaPipe initialization. Falls back to direct mode on failure.
    */
   async initialize(): Promise<void> {
     this._assertNotDestroyed()
 
-    try {
-      // P2-50: Dynamic import so MediaPipe WASM is not bundled eagerly
-      const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision')
-
-      const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
-
-      this._handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MODEL_ASSET_PATH,
-          delegate: 'GPU'
-        },
-        runningMode: 'VIDEO',
-        numHands: this._config.numHands,
-        minHandDetectionConfidence: this._config.minHandDetectionConfidence,
-        minHandPresenceConfidence: this._config.minHandPresenceConfidence,
-        minTrackingConfidence: this._config.minTrackingConfidence
-      })
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      this._emitError(new Error(`Failed to load HandLandmarker model: ${error.message}`))
-      throw error
+    // ── Try Worker Mode ───────────────────────────────────────────
+    if (this._useWorker && supportsOffscreenCanvas()) {
+      const workerReady = await this._initializeWorker()
+      if (workerReady) {
+        // Worker is ready; still need camera access for frame capture
+        await this._initializeCamera()
+        return
+      }
+      // Worker failed to initialize — fall through to direct mode
+      this._workerFallback = true
+      console.warn('[HandTracker] Worker initialization failed, falling back to direct mode')
+    } else if (this._useWorker) {
+      this._workerFallback = true
+      console.warn('[HandTracker] OffscreenCanvas not supported, falling back to direct mode')
     }
 
-    try {
-      this._stream = await navigator.mediaDevices.getUserMedia({
-        video: this._videoConstraints,
-        audio: false
-      })
-
-      this._video = document.createElement('video')
-      this._video.srcObject = this._stream
-      this._video.setAttribute('playsinline', 'true')
-      this._video.muted = true
-
-      await this._video.play()
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      this._emitError(new Error(`Camera access failed: ${error.message}`))
-      throw error
-    }
+    // ── Direct Mode ───────────────────────────────────────────────
+    await this._initializeDirectMode()
   }
 
   /**
@@ -159,6 +176,18 @@ export class HandTracker {
   start(): void {
     this._assertNotDestroyed()
 
+    if (this.isWorkerMode) {
+      if (!this._video) {
+        throw new Error('HandTracker.initialize() must be called before start()')
+      }
+      if (this._running) return
+      this._running = true
+      this._lastVideoTime = -1
+      this._animFrameId = requestAnimationFrame(this._workerLoop)
+      return
+    }
+
+    // Direct mode
     if (!this._handLandmarker || !this._video) {
       throw new Error('HandTracker.initialize() must be called before start()')
     }
@@ -183,6 +212,15 @@ export class HandTracker {
   destroy(): void {
     this.stop()
 
+    // Clean up worker
+    if (this._worker) {
+      this._worker.postMessage({ type: 'stop' })
+      this._worker.terminate()
+      this._worker = null
+    }
+    this._workerCanvas = null
+    this._workerReady = false
+
     if (this._stream) {
       for (const track of this._stream.getTracks()) {
         track.stop()
@@ -204,6 +242,189 @@ export class HandTracker {
     this._onFrame = null
     this._onError = null
     this._destroyed = true
+  }
+
+  // ── Private: Worker Mode ──────────────────────────────────────
+
+  /**
+   * Attempt to create and initialize the tracking Web Worker.
+   * Returns true if the worker sent 'ready', false on failure.
+   */
+  private async _initializeWorker(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      try {
+        const worker = new Worker(
+          new URL('../../../../workers/tracking.worker.ts', import.meta.url)
+        )
+
+        const canvas = new OffscreenCanvas(
+          typeof this._videoConstraints === 'object' && this._videoConstraints !== null && 'width' in this._videoConstraints
+            ? (this._videoConstraints.width as number) || 640
+            : 640,
+          typeof this._videoConstraints === 'object' && this._videoConstraints !== null && 'height' in this._videoConstraints
+            ? (this._videoConstraints.height as number) || 480
+            : 480
+        )
+
+        // Set up a one-time listener for the ready/error response
+        const timeout = setTimeout(() => {
+          worker.terminate()
+          resolve(false)
+        }, 10_000) // 10s timeout for model loading
+
+        worker.onmessage = (event: MessageEvent<TrackingWorkerOutMessage>) => {
+          const data = event.data
+
+          if (data.type === 'ready') {
+            clearTimeout(timeout)
+            this._worker = worker
+            this._workerCanvas = canvas
+            this._workerReady = true
+
+            // Re-attach the persistent message handler
+            worker.onmessage = this._onWorkerMessage
+
+            resolve(true)
+            return
+          }
+
+          if (data.type === 'error') {
+            clearTimeout(timeout)
+            worker.terminate()
+            resolve(false)
+            return
+          }
+        }
+
+        worker.onerror = () => {
+          clearTimeout(timeout)
+          worker.terminate()
+          resolve(false)
+        }
+
+        // Transfer the canvas to the worker
+        worker.postMessage(
+          {
+            type: 'init',
+            canvas,
+            config: {
+              numHands: this._config.numHands,
+              minHandDetectionConfidence: this._config.minHandDetectionConfidence,
+              minHandPresenceConfidence: this._config.minHandPresenceConfidence,
+              minTrackingConfidence: this._config.minTrackingConfidence
+            }
+          },
+          [canvas]
+        )
+      } catch {
+        resolve(false)
+      }
+    })
+  }
+
+  /** Handle messages from the tracking worker during normal operation. */
+  private _onWorkerMessage = (event: MessageEvent<TrackingWorkerOutMessage>): void => {
+    const data = event.data
+
+    switch (data.type) {
+      case 'landmarks': {
+        if (this._onFrame) {
+          this._onFrame(data.frame)
+        }
+        break
+      }
+      case 'error': {
+        this._emitError(new Error(`[Worker] ${data.message}`))
+        break
+      }
+    }
+  }
+
+  /**
+   * rAF loop for worker mode: captures frames from the video element
+   * as ImageBitmap and sends them to the worker for processing.
+   */
+  private _workerLoop = (): void => {
+    if (!this._running) return
+
+    this._animFrameId = requestAnimationFrame(this._workerLoop)
+
+    if (!this._video || !this._worker || !this._workerReady) return
+
+    const videoTime = this._video.currentTime
+    if (videoTime === this._lastVideoTime) return
+    this._lastVideoTime = videoTime
+
+    // Capture the current video frame as an ImageBitmap and transfer it
+    createImageBitmap(this._video)
+      .then((bitmap) => {
+        if (!this._running || !this._worker) {
+          bitmap.close()
+          return
+        }
+        this._worker.postMessage(
+          { type: 'frame', imageBitmap: bitmap },
+          [bitmap]
+        )
+      })
+      .catch((err) => {
+        this._errorCount++
+        if (this._errorCount <= 3 || this._errorCount % 100 === 0) {
+          console.warn(
+            `[HandTracker] ImageBitmap capture error (total: ${this._errorCount}):`,
+            err instanceof Error ? err.message : String(err)
+          )
+        }
+      })
+  }
+
+  // ── Private: Direct Mode ──────────────────────────────────────
+
+  private async _initializeDirectMode(): Promise<void> {
+    try {
+      // P2-50: Dynamic import so MediaPipe WASM is not bundled eagerly
+      const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision')
+
+      const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
+
+      this._handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: MODEL_ASSET_PATH,
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: this._config.numHands,
+        minHandDetectionConfidence: this._config.minHandDetectionConfidence,
+        minHandPresenceConfidence: this._config.minHandPresenceConfidence,
+        minTrackingConfidence: this._config.minTrackingConfidence
+      })
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      this._emitError(new Error(`Failed to load HandLandmarker model: ${error.message}`))
+      throw error
+    }
+
+    await this._initializeCamera()
+  }
+
+  private async _initializeCamera(): Promise<void> {
+    try {
+      this._stream = await navigator.mediaDevices.getUserMedia({
+        video: this._videoConstraints,
+        audio: false
+      })
+
+      this._video = document.createElement('video')
+      this._video.srcObject = this._stream
+      this._video.setAttribute('playsinline', 'true')
+      this._video.muted = true
+
+      await this._video.play()
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      this._emitError(new Error(`Camera access failed: ${error.message}`))
+      throw error
+    }
   }
 
   // ── Private Helpers ─────────────────────────────────────────────

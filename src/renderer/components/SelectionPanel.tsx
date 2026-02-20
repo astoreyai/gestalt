@@ -13,10 +13,10 @@ import type { SelectedPointInfo } from '../controller/selection-info'
 /** Shared button style (matches App.tsx buttonStyle) */
 const buttonStyle: React.CSSProperties = {
   padding: '6px 12px',
-  background: 'rgba(0,0,0,0.6)',
-  border: '1px solid #444',
+  background: 'var(--button-bg)',
+  border: '1px solid var(--border)',
   borderRadius: 6,
-  color: '#ccc',
+  color: 'var(--button-text)',
   cursor: 'pointer',
   fontSize: 12
 }
@@ -27,9 +27,9 @@ const panelStyle: React.CSSProperties = {
   bottom: 16,
   left: 16,
   padding: 16,
-  background: 'rgba(0,0,0,0.8)',
+  background: 'var(--panel-bg)',
   borderRadius: 12,
-  border: '1px solid #333',
+  border: '1px solid var(--border)',
   maxWidth: 300
 }
 
