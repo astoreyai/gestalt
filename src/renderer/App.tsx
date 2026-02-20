@@ -18,7 +18,7 @@ import { ToastQueue } from './components/ToastQueue'
 import { ModalContainer } from './components/ModalContainer'
 import { SelectionPanel } from './components/SelectionPanel'
 import { useHandTracker } from './hooks/useHandTracker'
-import type { GraphData, EmbeddingData } from '@shared/protocol'
+import type { GraphData, EmbeddingData, CalibrationProfile } from '@shared/protocol'
 
 export function App(): React.ReactElement {
   const {
@@ -47,6 +47,40 @@ export function App(): React.ReactElement {
       addToast(`Hand tracking unavailable: ${trackerError.message}`, 'warning')
     }
   }, [trackerError, addToast])
+
+  // Calibration profile state (backed by IPC persistence)
+  const [profiles, setProfiles] = useState<CalibrationProfile[]>([])
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api.listProfiles().then(setProfiles).catch(() => {})
+    window.api.getActiveProfile().then(setActiveProfileId).catch(() => {})
+  }, [])
+
+  const handleSaveProfile = useCallback((profile: CalibrationProfile) => {
+    const exists = profiles.some(p => p.id === profile.id)
+    if (exists) {
+      window.api.updateProfile(profile.id, profile).catch(() => {})
+      setProfiles(prev => prev.map(p => p.id === profile.id ? profile : p))
+    } else {
+      window.api.createProfile(profile).catch(() => {})
+      setProfiles(prev => [...prev, profile])
+    }
+  }, [profiles])
+
+  const handleDeleteProfile = useCallback((id: string) => {
+    window.api.deleteProfile(id).catch(() => {})
+    setProfiles(prev => prev.filter(p => p.id !== id))
+    if (activeProfileId === id) {
+      setActiveProfileId(null)
+      window.api.setActiveProfile(null).catch(() => {})
+    }
+  }, [activeProfileId])
+
+  const handleSetActiveProfile = useCallback((id: string) => {
+    setActiveProfileId(id)
+    window.api.setActiveProfile(id).catch(() => {})
+  }, [])
 
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 })
 
@@ -169,15 +203,10 @@ export function App(): React.ReactElement {
                 data={embeddingData}
                 selectedCluster={selectedClusterId ?? undefined}
                 hoveredPointId={hoveredPoint?.id}
-                onPointHover={(id) => {
-                  if (id && embeddingData) {
-                    const pt = embeddingData.points.find(p => p.id === id)
-                    setHoveredPoint(pt ?? null)
-                  } else {
-                    setHoveredPoint(null)
-                  }
+                onPointHover={(point) => {
+                  setHoveredPoint(point ?? null)
                 }}
-                onPointClick={(id) => selectNode(id)}
+                onPointClick={(point) => selectNode(point.id)}
               />
               <Clusters
                 clusters={clusterInfos}
@@ -248,6 +277,11 @@ export function App(): React.ReactElement {
         {activeModal === 'calibration' && (
           <Calibration
             landmarkFrame={landmarkFrame}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onSaveProfile={handleSaveProfile}
+            onDeleteProfile={handleDeleteProfile}
+            onSetActive={handleSetActiveProfile}
             onComplete={(sensitivity) => {
               updateConfig({
                 gestures: { ...config.gestures, sensitivity }

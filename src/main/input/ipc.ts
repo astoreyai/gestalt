@@ -18,9 +18,12 @@ export class InputIpcHandler {
   private enabled = true
 
   // Stored handler references for proper cleanup
-  private _mouseHandler: ((...args: unknown[]) => void) | null = null
-  private _keyboardHandler: ((...args: unknown[]) => void) | null = null
-  private _gestureHandler: ((...args: unknown[]) => void) | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _mouseHandler: ((...args: any[]) => void) | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _keyboardHandler: ((...args: any[]) => void) | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _gestureHandler: ((...args: any[]) => void) | null = null
 
   constructor() {
     this.mouse = new VirtualMouse()

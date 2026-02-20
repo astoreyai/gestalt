@@ -7,8 +7,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
-        '@shared': resolve('src/shared'),
-        '@main': resolve('src/main')
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@main': resolve(__dirname, 'src/main')
       }
     },
     build: {
@@ -22,6 +22,11 @@ export default defineConfig({
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
+    resolve: {
+      alias: {
+        '@shared': resolve(__dirname, 'src/shared')
+      }
+    },
     build: {
       outDir: 'dist/preload',
       rollupOptions: {
@@ -35,8 +40,8 @@ export default defineConfig({
     plugins: [react()],
     resolve: {
       alias: {
-        '@shared': resolve('src/shared'),
-        '@renderer': resolve('src/renderer')
+        '@shared': resolve(__dirname, 'src/shared'),
+        '@renderer': resolve(__dirname, 'src/renderer')
       }
     },
     root: resolve(__dirname, 'src/renderer'),

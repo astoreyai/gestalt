@@ -1,6 +1,6 @@
 # Tracking
 
-![Tests](https://img.shields.io/badge/tests-752%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-817%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
@@ -44,7 +44,7 @@ Tracking is a standalone Electron desktop application that lets users navigate 3
 |  Main Process                                                   |
 |                                                                 |
 |  N-API Native Addon        Persistence           Bus Server     |
-|  (uinput mouse/keyboard)   (electron-store)      (ws://9876)    |
+|  (uinput mouse/keyboard)   (JsonStore)           (ws://9876)    |
 |                                                                 |
 +----+--------------------------------------------+---------------+
      |                                            |
@@ -139,7 +139,7 @@ npm run package:deb          # Package as .deb
 
 ### AppConfig
 
-The application configuration is defined in `src/shared/protocol.ts` and persisted via `electron-store`:
+The application configuration is defined in `src/shared/protocol.ts` and persisted via a custom JSON store (atomic writes with backup rotation):
 
 ```typescript
 interface AppConfig {
@@ -241,7 +241,7 @@ Sample data files are included in `assets/samples/`.
 ## Testing
 
 ```bash
-npm test                 # Run all 752+ tests
+npm test                 # Run all 817+ tests
 npm run test:coverage    # Run with coverage report (text, HTML, lcov)
 ```
 
@@ -372,7 +372,7 @@ assets/
 | State Management    | Zustand 4.5                                    |
 | Schema Validation   | Zod 3.22                                       |
 | WebSocket           | ws 8.16                                        |
-| Persistence         | electron-store                                 |
+| Persistence         | Custom JsonStore (atomic file writes)          |
 | Native Addon        | N-API (node-gyp, node-addon-api)              |
 | Build Tool          | electron-vite (Vite)                           |
 | Testing             | Vitest 1.3, Testing Library, happy-dom        |

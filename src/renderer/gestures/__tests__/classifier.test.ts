@@ -3,6 +3,7 @@ import {
   type Landmark,
   type Hand,
   type LandmarkFrame,
+  type GestureEvent,
   LANDMARK,
   GestureType,
   GesturePhase

@@ -1,5 +1,5 @@
 /** Recursively merge objects; arrays are replaced entirely (not merged). */
-export function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
+export function deepMerge<T extends object>(target: T, source: Partial<T>): T {
   const result = { ...target }
   for (const key of Object.keys(source) as Array<keyof T>) {
     const sv = source[key]

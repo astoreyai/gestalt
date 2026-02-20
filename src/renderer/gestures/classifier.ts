@@ -147,7 +147,7 @@ export function analyzeHandPose(
   )
 
   const extensionValues = fingers.map((f) => (f.extended ? 1 : 0))
-  const palmOpenness = extensionValues.reduce((a, b) => a + b, 0) / 5
+  const palmOpenness = extensionValues.reduce<number>((a, b) => a + b, 0) / 5
 
   // Flatness: measure how coplanar the fingertips are by checking
   // deviation of fingertip z-values from the wrist plane
