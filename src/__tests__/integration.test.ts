@@ -476,7 +476,6 @@ describe('Integration: Full Pipeline', () => {
       keyboard.initWithNative({
         create: () => true,
         pressKey: (key) => pressCalls.push(key),
-        releaseKey: () => {},
         keyCombo: () => {},
         destroy: () => {}
       })
@@ -494,7 +493,6 @@ describe('Integration: Full Pipeline', () => {
       keyboard.initWithNative({
         create: () => true,
         pressKey: () => {},
-        releaseKey: () => {},
         keyCombo: (keys) => comboCalls.push([...keys]),
         destroy: () => {}
       })
@@ -524,7 +522,7 @@ describe('Integration: Full Pipeline', () => {
         type: 'gesture',
         name: 'pinch',
         hand: 'right',
-        position: { x: 0.5, y: 0.5, z: 0.1 },
+        position: [0.5, 0.5, 0.1],
         confidence: 0.9,
         phase: 'onset'
       })
@@ -553,7 +551,7 @@ describe('Integration: Full Pipeline', () => {
         type: 'gesture',
         name: 'pinch',
         hand: 'right',
-        position: { x: 0.5, y: 0.5, z: 0 },
+        position: [0.5, 0.5, 0],
         confidence: 0.9,
         phase: 'onset'
       })
@@ -578,7 +576,7 @@ describe('Integration: Full Pipeline', () => {
         type: 'gesture',
         name: 'twist',
         hand: 'right',
-        position: { x: 0.5, y: 0.5, z: 0 },
+        position: [0.5, 0.5, 0],
         confidence: 0.8,
         phase: 'hold'
       })
@@ -760,7 +758,7 @@ describe('Integration: Full Pipeline', () => {
         type: 'gesture',
         name: event.type,
         hand: event.hand,
-        position: event.position,
+        position: [event.position.x, event.position.y, event.position.z],
         confidence: event.confidence,
         phase: event.phase
       })

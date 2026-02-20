@@ -48,7 +48,7 @@ export function rotateBackups(filePath: string, maxBackups: number = 3): void {
   }
 }
 
-class JsonStore<T extends Record<string, unknown>> {
+class JsonStore<T extends object> {
   private filePath: string
   private data: T
 

@@ -352,7 +352,7 @@ describe('Benchmarks', () => {
           type: 'gesture' as const,
           name: 'pinch',
           hand: 'right' as const,
-          position: { x: 0.5, y: 0.5, z: 0.1 },
+          position: [0.5, 0.5, 0.1] as [number, number, number],
           confidence: 0.9,
           phase: 'onset'
         }

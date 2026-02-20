@@ -14,7 +14,7 @@ import type { Landmark, LandmarkFrame } from '@shared/protocol'
 // ─── Mocks ──────────────────────────────────────────────────────
 
 // Mock @mediapipe/tasks-vision before importing any modules that depend on it
-const mockDetectForVideo = vi.fn<(video: unknown, timestamp: number) => HandLandmarkerResult>()
+const mockDetectForVideo = vi.fn<[video: unknown, timestamp: number], HandLandmarkerResult>()
 const mockClose = vi.fn()
 const mockCreateFromOptions = vi.fn()
 const mockForVisionTasks = vi.fn()
@@ -477,12 +477,12 @@ describe('HandTracker', () => {
     }
 
     // Mock document.createElement to return our mock video
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
       if (tag === 'video') {
         return mockVideoElement as unknown as HTMLVideoElement
       }
       return document.createElement(tag)
-    })
+    }) as typeof document.createElement)
 
     // Mock navigator.mediaDevices.getUserMedia
     Object.defineProperty(globalThis.navigator, 'mediaDevices', {

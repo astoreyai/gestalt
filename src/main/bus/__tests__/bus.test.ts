@@ -9,7 +9,7 @@ import { createServer, type AddressInfo } from 'net'
 import { URL } from 'url'
 
 // Mock WebSocket
-function createMockWs(readyState = WebSocket.OPEN): WebSocket {
+function createMockWs(readyState: number = WebSocket.OPEN): WebSocket {
   return {
     readyState,
     send: vi.fn(),
@@ -312,21 +312,30 @@ describe('BusServer lifecycle', () => {
   })
 
   it('should retry on EADDRINUSE', async () => {
+    // Reserve 3 consecutive ports: block the first, leave the rest free
     const port = await getAvailablePort()
+    // Verify port+1 is also free (avoid contention with parallel tests)
+    const checker = createServer()
+    await new Promise<void>((resolve, reject) => {
+      checker.listen(port + 1, '127.0.0.1', () => {
+        checker.close(() => resolve())
+      })
+      checker.on('error', () => reject(new Error('port+1 unavailable')))
+    })
 
     // Occupy the first port with a plain WebSocketServer
-    const blocker = new WebSocketServer({ port })
+    const blocker = new WebSocketServer({ port, host: '127.0.0.1' })
     await new Promise<void>((resolve) => blocker.on('listening', resolve))
 
     try {
       server = new BusServer({ port, authenticate: false })
       await server.start()
-      // Should have succeeded on port or port+1 or port+2
+      // Should have succeeded on port+1 or port+2
       expect(server.isRunning()).toBe(true)
     } finally {
       blocker.close()
     }
-  })
+  }, 10000)
 
   it('should throw after exhausting retry attempts', async () => {
     const port = await getAvailablePort()
