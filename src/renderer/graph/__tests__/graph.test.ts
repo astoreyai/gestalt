@@ -4,7 +4,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Vector3, PerspectiveCamera } from 'three'
-import { parseJsonGraph, GraphDataSchema } from '../parsers/json-parser'
+import { parseJsonGraph } from '../parsers/json-parser'
+import { GraphDataSchema } from '@renderer/data/validators'
 import { parseGraphML } from '../parsers/graphml-parser'
 import { parseGraph } from '../parsers'
 import {
@@ -93,7 +94,7 @@ describe('parseJsonGraph', () => {
       nodes: [{ id: '' }],
       edges: []
     })
-    await expect(parseJsonGraph(json)).rejects.toThrow('non-empty string')
+    await expect(parseJsonGraph(json)).rejects.toThrow(/at least 1 character|non-empty/)
   })
 
   it('should throw on node with negative size', async () => {
@@ -101,7 +102,7 @@ describe('parseJsonGraph', () => {
       nodes: [{ id: 'a', size: -1 }],
       edges: []
     })
-    await expect(parseJsonGraph(json)).rejects.toThrow('positive')
+    await expect(parseJsonGraph(json)).rejects.toThrow(/greater than 0|positive/)
   })
 
   it('should throw on edge with empty source', async () => {
@@ -109,7 +110,7 @@ describe('parseJsonGraph', () => {
       nodes: [{ id: 'a' }],
       edges: [{ source: '', target: 'a' }]
     })
-    await expect(parseJsonGraph(json)).rejects.toThrow('non-empty string')
+    await expect(parseJsonGraph(json)).rejects.toThrow(/at least 1 character|non-empty/)
   })
 
   it('should throw on edge referencing non-existent source node', async () => {
@@ -133,7 +134,7 @@ describe('parseJsonGraph', () => {
       nodes: [{ id: 'a' }, { id: 'b' }],
       edges: [{ source: 'a', target: 'b', weight: -0.5 }]
     })
-    await expect(parseJsonGraph(json)).rejects.toThrow('non-negative')
+    await expect(parseJsonGraph(json)).rejects.toThrow(/greater than or equal to 0|non-negative/)
   })
 
   it('should accept edges with weight of 0', async () => {

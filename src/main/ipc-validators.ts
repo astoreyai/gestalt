@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import { GestureType } from '@shared/protocol'
 
 // ─── App Config Schema ──────────────────────────────────────────
 
@@ -41,7 +42,7 @@ export const CalibrationProfileSchema = z.object({
   name: z.string().min(1).max(200),
   sensitivity: z.number().min(0).max(1),
   samples: z.array(z.object({
-    gestureType: z.string(),
+    gestureType: z.nativeEnum(GestureType),
     landmarks: z.array(z.object({
       x: z.number(),
       y: z.number(),
@@ -56,7 +57,8 @@ export const CalibrationProfileSchema = z.object({
 
 // ─── Partial profile update schema (for PROFILE_UPDATE) ─────────
 
-export const PartialCalibrationProfileSchema = CalibrationProfileSchema.partial()
+// PartialCalibrationProfileSchema used inline as CalibrationProfileSchema.partial()
+// in main/index.ts PROFILE_UPDATE handler
 
 // ─── Landmark / Hand Schemas ────────────────────────────────────
 

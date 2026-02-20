@@ -3,6 +3,8 @@
  * Used by external programs connecting to the tracking app.
  */
 
+import type { GestureType, GesturePhase } from './protocol'
+
 /** Message from an external program registering itself */
 export interface BusRegisterMessage {
   type: 'register'
@@ -13,9 +15,9 @@ export interface BusRegisterMessage {
 /** Gesture event broadcast to connected programs */
 export interface BusGestureMessage {
   type: 'gesture'
-  name: string // GestureType value
-  phase: string // GesturePhase value
-  hand: string // 'left' | 'right'
+  name: GestureType
+  phase: GesturePhase
+  hand: 'left' | 'right'
   position: [number, number, number] // [x, y, z]
   confidence: number
   data?: Record<string, number>

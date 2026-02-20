@@ -47,7 +47,7 @@ export interface DataState {
   setEmbeddingData: (data: EmbeddingData | null) => void
 }
 
-export interface GestureState {
+export interface GestureSliceState {
   activeGesture: GestureEvent | null
   lastGestureType: GestureType | null
   trackingEnabled: boolean
@@ -110,7 +110,7 @@ export const useDataStore = create<DataState>((set) => ({
 
 // ─── Gesture State ────────────────────────────────────────
 
-export const useGestureStore = create<GestureState>((set) => ({
+export const useGestureStore = create<GestureSliceState>((set) => ({
   activeGesture: null,
   lastGestureType: null,
   trackingEnabled: true,
@@ -302,7 +302,7 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
   if (Object.keys(dataPartial).length > 0) useDataStore.setState(dataPartial)
 
   // Gesture state
-  const gesturePartial: Partial<GestureState> = {}
+  const gesturePartial: Partial<GestureSliceState> = {}
   if (activeGesture !== undefined) gesturePartial.activeGesture = activeGesture
   if (lastGestureType !== undefined) gesturePartial.lastGestureType = lastGestureType
   if (trackingEnabled !== undefined) gesturePartial.trackingEnabled = trackingEnabled

@@ -7,9 +7,7 @@
 
 // Types
 export type {
-  ClusterInfo,
-  ManifoldViewState,
-  DensityConfig
+  ClusterInfo
 } from './types'
 export { CLUSTER_COLORS } from './types'
 export type { EmbeddingPoint, EmbeddingData } from './types'

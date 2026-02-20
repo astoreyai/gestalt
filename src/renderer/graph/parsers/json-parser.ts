@@ -1,42 +1,9 @@
 /**
  * JSON graph data parser with Zod schema validation.
+ * Reuses schemas from the central validators module to avoid duplication.
  */
-import { z } from 'zod'
 import type { GraphData } from '@shared/protocol'
-
-/** Zod schema for a single graph node */
-const GraphNodeSchema = z.object({
-  id: z.string().min(1, 'Node id must be a non-empty string'),
-  label: z.string().optional(),
-  position: z
-    .object({
-      x: z.number(),
-      y: z.number(),
-      z: z.number()
-    })
-    .optional(),
-  color: z.string().optional(),
-  size: z.number().positive('Node size must be positive').optional(),
-  metadata: z.record(z.unknown()).optional()
-})
-
-/** Zod schema for a single graph edge */
-const GraphEdgeSchema = z.object({
-  source: z.string().min(1, 'Edge source must be a non-empty string'),
-  target: z.string().min(1, 'Edge target must be a non-empty string'),
-  weight: z.number().min(0, 'Edge weight must be non-negative').optional(),
-  label: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
-})
-
-/** Zod schema for the complete graph data structure */
-export const GraphDataSchema = z.object({
-  nodes: z
-    .array(GraphNodeSchema)
-    .min(1, 'Graph must have at least one node'),
-  edges: z.array(GraphEdgeSchema),
-  metadata: z.record(z.unknown()).optional()
-})
+import { GraphDataSchema } from '@renderer/data/validators'
 
 /**
  * Parse a JSON string into validated GraphData.
