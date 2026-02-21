@@ -23,16 +23,14 @@ import {
   type GestureEvent,
   type MouseCommand,
   type KeyboardCommand,
-  type GraphData,
-  type EmbeddingData,
   LANDMARK,
   GestureType,
   GesturePhase
 } from '@shared/protocol'
 import { LandmarkSmoother } from '@renderer/tracker/filters'
-import { classifyGesture, distance } from '@renderer/gestures/classifier'
+import { classifyGesture } from '@renderer/gestures/classifier'
 import { GestureEngine } from '@renderer/gestures/state'
-import { mapGestureToCommand, DEFAULT_MAPPINGS } from '@renderer/gestures/mappings'
+import { mapGestureToCommand } from '@renderer/gestures/mappings'
 import { dispatchGesture, type DispatchContext } from '@renderer/controller/dispatcher'
 import { VirtualMouse } from '@main/input/mouse'
 import { VirtualKeyboard } from '@main/input/keyboard'
@@ -42,7 +40,6 @@ import { validateGraphData, validateEmbeddingData, validateData } from '@rendere
 import { calculateClusterCentroids, findNearestPoint } from '@renderer/manifold/navigation'
 import { generateGaussianClusters } from '@renderer/manifold/generators'
 import { parseJsonGraph } from '@renderer/graph/parsers/json-parser'
-import { DEFAULT_GESTURE_CONFIG } from '@renderer/gestures/types'
 
 // ─── Synthetic Hand Data Generators ──────────────────────────────────
 
@@ -789,7 +786,7 @@ describe('Integration: Full Pipeline', () => {
 
       for (const event of events) {
         // Each event should be processable by both mapGestureToCommand and dispatchGesture
-        const command = mapGestureToCommand(event)
+        mapGestureToCommand(event) // verify it doesn't throw
         const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
         const action = dispatchGesture(event, ctx)
 

@@ -7,7 +7,6 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { BusGestureMessage } from '@shared/bus-protocol'
 import { GestureType, GesturePhase } from '@shared/protocol'
 import { createServer, type AddressInfo } from 'net'
-import { URL } from 'url'
 
 // Mock WebSocket
 function createMockWs(readyState: number = WebSocket.OPEN): WebSocket {

@@ -87,11 +87,12 @@ const FINGER_NAMES: FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pinky']
 
 /**
  * Compute curl amount for a finger.
- * Uses the angle between MCP->PIP->DIP joints.
+ * Uses a hybrid of joint angles and tip-to-MCP distance ratio.
  * Returns 0 = fully extended, 1 = fully curled.
  *
- * A straight finger has angle ~pi (180 degrees), curled ~0.
- * We normalize: curl = 1 - (angle / pi)
+ * The angle-based approach can be unreliable when camera depth (z) is noisy.
+ * Adding a distance ratio (tip-to-MCP vs MCP-to-wrist) provides a more
+ * robust signal: curled fingers have tips close to their MCP joints.
  */
 export function fingerCurl(landmarks: Landmark[], finger: FingerName): number {
   const idx = FINGER_INDICES[finger]
@@ -100,13 +101,23 @@ export function fingerCurl(landmarks: Landmark[], finger: FingerName): number {
   const dip = landmarks[idx.dip]
   const tip = landmarks[idx.tip]
 
-  // Use average of two angles: MCP-PIP-DIP and PIP-DIP-TIP
+  // Angle-based curl: straight = pi, bent = 0
   const angle1 = angleBetween(mcp, pip, dip)
   const angle2 = angleBetween(pip, dip, tip)
   const avgAngle = (angle1 + angle2) / 2
+  const angleCurl = Math.max(0, Math.min(1, 1 - avgAngle / Math.PI))
 
-  // Normalize: straight = pi radians = 0 curl, bent = 0 radians = 1 curl
-  return Math.max(0, Math.min(1, 1 - avgAngle / Math.PI))
+  // Distance-based curl: how close is the tip to the MCP relative to finger length?
+  // Extended finger: tip far from MCP. Curled: tip close to MCP.
+  const tipToMcp = distance(tip, mcp)
+  // Approximate max finger length as sum of bone segments
+  const boneLen = distance(mcp, pip) + distance(pip, dip) + distance(dip, tip)
+  const distRatio = boneLen > 0.001 ? tipToMcp / boneLen : 1
+  // distRatio ~1 when straight, ~0.3 when curled. Map to curl value.
+  const distCurl = Math.max(0, Math.min(1, 1 - distRatio))
+
+  // Blend: weight distance ratio more heavily since it's less affected by z-noise
+  return angleCurl * 0.4 + distCurl * 0.6
 }
 
 /**
@@ -201,12 +212,12 @@ export function detectPoint(
 ): boolean {
   const lm = hand.landmarks
   const indexExt = fingerExtended(lm, 'index', config)
-  const thumbCurled = fingerCurl(lm, 'thumb') > config.curlThreshold
+  // Thumb position ignored — most people leave it out when pointing
   const middleCurled = fingerCurl(lm, 'middle') > config.curlThreshold
   const ringCurled = fingerCurl(lm, 'ring') > config.curlThreshold
   const pinkyCurled = fingerCurl(lm, 'pinky') > config.curlThreshold
 
-  return indexExt && thumbCurled && middleCurled && ringCurled && pinkyCurled
+  return indexExt && middleCurled && ringCurled && pinkyCurled
 }
 
 /**
@@ -296,37 +307,55 @@ export function classifyGesture(
     pinky: fingerCurl(lm, 'pinky')
   }
 
-  // Check pinch first — very specific
+  // Check fist early — all fingers curled. Must come before pinch because
+  // a closed fist naturally brings thumb tip near index tip, falsely triggering pinch.
+  // Thumb uses a much lower threshold because it curls sideways and MediaPipe
+  // consistently underreports its curl value (often 0.1-0.2 even when fully curled).
+  const fourFingersCurled = curls.index > config.curlThreshold
+    && curls.middle > config.curlThreshold
+    && curls.ring > config.curlThreshold
+    && curls.pinky > config.curlThreshold
+  const thumbCurledForFist = curls.thumb > 0.08
+  if (fourFingersCurled && thumbCurledForFist) {
+    const avgCurl = (curls.index + curls.middle + curls.ring + curls.pinky) / 4
+    return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
+  }
+
+  // Check pinch — thumb tip close to index tip, but index must not be fully curled
+  // (otherwise it's a fist, not a pinch)
   const pinch = detectPinch(hand, config)
   if (pinch.detected) {
-    // Confidence inversely proportional to distance (closer = more confident)
     const pinchThreshold = Math.max(0.001, config.pinchThreshold)
     const confidence = Math.max(0, Math.min(1, 1 - pinch.distance / pinchThreshold))
     return { type: GestureType.Pinch, confidence }
   }
 
-  // Check point — only index extended (use cached curls)
+  // Pre-compute shared finger state
   const indexExt = curls.index < config.extensionThreshold
-  const thumbCurled = curls.thumb > config.curlThreshold
+  const thumbExt = curls.thumb < config.extensionThreshold
   const middleCurled = curls.middle > config.curlThreshold
   const ringCurled = curls.ring > config.curlThreshold
   const pinkyCurled = curls.pinky > config.curlThreshold
+  const otherCurls = [curls.middle, curls.ring, curls.pinky]
+  const avgOtherCurl = otherCurls.reduce((a, b) => a + b, 0) / otherCurls.length
 
-  if (indexExt && thumbCurled && middleCurled && ringCurled && pinkyCurled) {
-    return { type: GestureType.Point, confidence: Math.max(0.5, 1 - curls.index) }
-  }
-
-  // Check L-shape — thumb + index extended, rest curled (use cached curls)
-  const thumbExt = curls.thumb < config.extensionThreshold
+  // Check L-shape — thumb + index extended, rest curled. More specific than
+  // Point (which only needs index), so it must be checked first.
   if (thumbExt && indexExt && middleCurled && ringCurled && pinkyCurled) {
-    return { type: GestureType.LShape, confidence: 0.85 }
+    const avgCurl = (curls.middle + curls.ring + curls.pinky) / 3
+    return { type: GestureType.LShape, confidence: Math.min(1, avgCurl + 0.3) }
   }
 
-  // Check fist — all curled (use cached curls)
-  const allCurled = FINGER_NAMES.every((name) => curls[name] > config.curlThreshold)
-  if (allCurled) {
-    const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
-    return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
+  // Check point — index finger is clearly the most extended finger.
+  // Uses relative comparison instead of absolute thresholds because
+  // MediaPipe z-depth is unreliable at many camera angles, causing
+  // curled fingers to report low curl values (0.1-0.3).
+  const absoluteMatch = indexExt && middleCurled && ringCurled && pinkyCurled
+  const relativeMatch = indexExt && (avgOtherCurl - curls.index) > 0.1
+
+  if (absoluteMatch || relativeMatch) {
+    const confidence = Math.max(0.5, Math.min(1, (avgOtherCurl - curls.index) * 3 + 0.5))
+    return { type: GestureType.Point, confidence }
   }
 
   // Check flat drag and open palm — need all extended (use cached curls)

@@ -57,6 +57,9 @@ const api = {
   loadFile: (path: string): Promise<string> =>
     ipcRenderer.invoke(IPC.FILE_LOAD, path),
 
+  loadSample: (name: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.SAMPLE_LOAD, name),
+
   // ─── Calibration Profiles ──────────────────────────────────────
   listProfiles: (): Promise<CalibrationProfile[]> =>
     ipcRenderer.invoke(IPC.PROFILE_LIST),

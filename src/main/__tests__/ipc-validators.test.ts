@@ -443,13 +443,13 @@ describe('GestureEventSchema', () => {
   })
 
   it('should reject missing confidence field', () => {
-    const { confidence: _, ...noConfidence } = validGesture
+    const { confidence: _confidence, ...noConfidence } = validGesture
     const result = GestureEventSchema.safeParse(noConfidence)
     expect(result.success).toBe(false)
   })
 
   it('should reject missing position field', () => {
-    const { position: _, ...noPosition } = validGesture
+    const { position: _position, ...noPosition } = validGesture
     const result = GestureEventSchema.safeParse(noPosition)
     expect(result.success).toBe(false)
   })

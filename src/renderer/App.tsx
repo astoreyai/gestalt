@@ -1,6 +1,7 @@
-import React, { Suspense, useState, useCallback, useEffect, useMemo } from 'react'
+import React, { Suspense, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stats, Html } from '@react-three/drei'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import {
   useVisualStore,
   useDataStore,
@@ -25,6 +26,9 @@ import { ToastQueue } from './components/ToastQueue'
 import { ModalContainer } from './components/ModalContainer'
 import { SelectionPanel } from './components/SelectionPanel'
 import { useHandTracker } from './hooks/useHandTracker'
+import { validateData } from './data/validators'
+import { dispatchGesture } from './controller/dispatcher'
+import type { SceneAction } from './controller/dispatcher'
 import type { GraphData, EmbeddingData, CalibrationProfile } from '@shared/protocol'
 
 export function App(): React.ReactElement {
@@ -32,7 +36,6 @@ export function App(): React.ReactElement {
   // full-tree re-renders when any unrelated slice changes.
   const viewMode = useVisualStore((s) => s.viewMode)
   const selectedNodeId = useVisualStore((s) => s.selectedNodeId)
-  const hoveredNodeId = useVisualStore((s) => s.hoveredNodeId)
   const selectedClusterId = useVisualStore((s) => s.selectedClusterId)
   const selectNode = useVisualStore((s) => s.selectNode)
   const hoverNode = useVisualStore((s) => s.hoverNode)
@@ -52,7 +55,6 @@ export function App(): React.ReactElement {
   const calibrated = useConfigStore((s) => s.calibrated)
   const setCalibrated = useConfigStore((s) => s.setCalibrated)
 
-  const error = useUIStore((s) => s.error)
   const setError = useUIStore((s) => s.setError)
   const toasts = useUIStore((s) => s.toasts)
   const addToast = useUIStore((s) => s.addToast)
@@ -77,6 +79,8 @@ export function App(): React.ReactElement {
     [setEmbeddingDataRaw, setViewMode]
   )
 
+  const orbitRef = useRef<OrbitControlsImpl>(null)
+
   // Hand tracking via hook — graceful degradation on failure
   const { frame: landmarkFrame, error: trackerError } = useHandTracker({
     enabled: trackingEnabled,
@@ -90,6 +94,81 @@ export function App(): React.ReactElement {
       addToast(`Hand tracking unavailable: ${trackerError.message}`, 'warning')
     }
   }, [trackerError, addToast])
+
+  // Dispatch gesture events to scene actions (rotate, pan, zoom, select)
+  useEffect(() => {
+    if (!activeGesture || !trackingEnabled) return
+
+    const action: SceneAction = dispatchGesture(activeGesture, {
+      viewMode,
+      selectedNodeId,
+      selectedClusterId,
+      oneHandedMode: config.gestures.oneHandedMode
+    })
+
+    if (action.type === 'noop') return
+
+    const controls = orbitRef.current
+    switch (action.type) {
+      case 'select': {
+        // Use gesture position to select the nearest node
+        // For now, the 3D raycasting is handled by click events on the instanced mesh.
+        // Pinch select is a proximity-based selection: find closest node to gesture position.
+        break
+      }
+      case 'deselect':
+        selectNode(null)
+        selectCluster(null)
+        break
+      case 'rotate': {
+        if (!controls) break
+        const angle = (action.params.angle as number) * 0.05
+        controls.autoRotate = false
+        // Rotate camera around the target on the Y axis
+        const rt = controls.target
+        const cam = controls.object
+        const ox = cam.position.x - rt.x
+        const oz = cam.position.z - rt.z
+        const cos = Math.cos(angle)
+        const sin = Math.sin(angle)
+        cam.position.x = rt.x + ox * cos - oz * sin
+        cam.position.z = rt.z + ox * sin + oz * cos
+        cam.lookAt(rt)
+        controls.update()
+        break
+      }
+      case 'pan': {
+        if (!controls) break
+        const dx = (action.params.dx as number) * 0.5
+        const dy = (action.params.dy as number) * 0.5
+        controls.target.x -= dx
+        controls.target.y += dy
+        controls.object.position.x -= dx
+        controls.object.position.y += dy
+        controls.update()
+        break
+      }
+      case 'zoom': {
+        if (!controls) break
+        const delta = (action.params.delta as number) * 0.5
+        const camera = controls.object
+        const direction = controls.target.clone().sub(camera.position).normalize()
+        camera.position.addScaledVector(direction, delta)
+        controls.update()
+        break
+      }
+      case 'navigate':
+        // Navigate to a point (manifold view) — move camera target
+        if (controls) {
+          const x = action.params.x as number
+          const y = action.params.y as number
+          const z = action.params.z as number
+          controls.target.set(x * 50, y * 50, z * 50)
+          controls.update()
+        }
+        break
+    }
+  }, [activeGesture, trackingEnabled, viewMode, selectedNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster])
 
   // Calibration profile state (backed by IPC persistence)
   const [profiles, setProfiles] = useState<CalibrationProfile[]>([])
@@ -217,14 +296,66 @@ export function App(): React.ReactElement {
 
   const handleCloseModal = useCallback(() => setActiveModal(null), [setActiveModal])
 
+  // Root-level drag-and-drop (works without opening the DataLoader modal)
+  const [rootDragOver, setRootDragOver] = useState(false)
+
+  const handleRootDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setRootDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const content = reader.result
+      if (typeof content !== 'string') { handleError('File content is not text'); return }
+      try {
+        const parsed = JSON.parse(content)
+        const result = validateData(parsed)
+        if (!result.success) { handleError(`Validation failed: ${result.errors?.join(', ')}`); return }
+        if ('nodes' in result.data! && 'edges' in result.data!) {
+          handleGraphLoaded(result.data as GraphData)
+        } else {
+          handleEmbeddingLoaded(result.data as EmbeddingData)
+        }
+      } catch (err) {
+        handleError(`Failed to parse ${file.name}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+    reader.onerror = () => handleError('Failed to read dropped file')
+    reader.readAsText(file)
+  }, [handleGraphLoaded, handleEmbeddingLoaded, handleError])
+
+  // Load bundled sample files
+  const loadSample = useCallback(async (name: string) => {
+    try {
+      const content = await window.api.loadSample(name)
+      const parsed = JSON.parse(content)
+      const result = validateData(parsed)
+      if (!result.success) { handleError(`Sample validation failed: ${result.errors?.join(', ')}`); return }
+      if ('nodes' in result.data! && 'edges' in result.data!) {
+        handleGraphLoaded(result.data as GraphData)
+      } else {
+        handleEmbeddingLoaded(result.data as EmbeddingData)
+      }
+    } catch (err) {
+      handleError(`Failed to load sample: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }, [handleGraphLoaded, handleEmbeddingLoaded, handleError])
+
   return (
     <div
-      style={{ width: '100%', height: '100%', position: 'relative' }}
+      style={{
+        width: '100%', height: '100%', position: 'relative',
+        outline: rootDragOver ? '2px solid var(--accent)' : 'none'
+      }}
       onClick={handleRootClick}
+      onDrop={handleRootDrop}
+      onDragOver={(e) => { e.preventDefault(); setRootDragOver(true) }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setRootDragOver(false) }}
     >
       {/* 3D Canvas */}
       <Canvas
-        camera={{ position: [0, 0, 50], fov: 60, near: 0.1, far: 10000 }}
+        camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
       >
         <ambientLight intensity={0.4} />
@@ -262,10 +393,10 @@ export function App(): React.ReactElement {
             </>
           )}
 
-          {/* Placeholder when no data loaded */}
-          {!hasData && <PlaceholderScene />}
+          {/* Placeholder when no data loaded (hide when modal is open to avoid text bleeding through) */}
+          {!hasData && activeModal === null && <PlaceholderScene onLoadSample={loadSample} />}
         </Suspense>
-        <OrbitControls enableDamping dampingFactor={0.1} />
+        <OrbitControls ref={orbitRef} enableDamping dampingFactor={0.1} />
         <Stats />
       </Canvas>
 
@@ -359,6 +490,7 @@ export function App(): React.ReactElement {
             config={config}
             onConfigChange={updateConfig}
             onClose={handleCloseModal}
+            onOpenCalibration={() => setActiveModal('calibration')}
           />
         )}
       </ModalContainer>
@@ -367,7 +499,16 @@ export function App(): React.ReactElement {
 }
 
 /** Instructive empty state shown when no data is loaded */
-function PlaceholderScene(): React.ReactElement {
+function PlaceholderScene({ onLoadSample }: { onLoadSample: (name: string) => void }): React.ReactElement {
+  const sampleBtnStyle: React.CSSProperties = {
+    padding: '6px 14px',
+    background: 'var(--button-bg, #1a1a2e)',
+    border: '1px solid var(--border, #333)',
+    borderRadius: 6,
+    color: 'var(--accent, #4a9eff)',
+    cursor: 'pointer',
+    fontSize: 12
+  }
   return (
     <group>
       <gridHelper args={[100, 50, '#333', '#222']} />
@@ -376,15 +517,22 @@ function PlaceholderScene(): React.ReactElement {
           textAlign: 'center',
           color: A11Y_COLORS.textSecondary,
           userSelect: 'none',
-          pointerEvents: 'none',
           whiteSpace: 'nowrap'
         }}>
           <p style={{ fontSize: 18, margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
             Drop a JSON file or click Load to begin
           </p>
-          <p style={{ fontSize: 13, margin: 0, color: 'var(--text-muted)' }}>
+          <p style={{ fontSize: 13, margin: '0 0 16px 0', color: 'var(--text-muted)' }}>
             Supports: Graph (nodes + edges) or Embeddings (points + clusters)
           </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', pointerEvents: 'auto' }}>
+            <button style={sampleBtnStyle} onClick={() => onLoadSample('small-graph.json')}>
+              Sample Graph
+            </button>
+            <button style={sampleBtnStyle} onClick={() => onLoadSample('embeddings-5k.json')}>
+              Sample Embeddings
+            </button>
+          </div>
         </div>
       </Html>
     </group>

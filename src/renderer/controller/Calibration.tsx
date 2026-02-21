@@ -12,7 +12,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { LandmarkFrame, CalibrationProfile, GestureSample } from '@shared/protocol'
 import { GestureType } from '@shared/protocol'
 import { extractFeatures } from '../gestures/features'
-import { classifyGesture } from '../gestures/classifier'
+import { classifyGesture, fingerCurl } from '../gestures/classifier'
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -185,48 +185,64 @@ export function Calibration({
     [samples]
   )
 
-  // Auto-record when the target gesture is detected
+  // Debug: show finger curl values in real time
+  const [debugInfo, setDebugInfo] = useState<string>('')
+  const [captureFlash, setCaptureFlash] = useState(false)
+
+  // Update debug info on each frame
   useEffect(() => {
     if (view !== 'record') return
+    if (!landmarkFrame || landmarkFrame.hands.length === 0) {
+      setDebugInfo('No hands visible')
+      return
+    }
+    for (const hand of landmarkFrame.hands) {
+      const names = ['thumb', 'index', 'middle', 'ring', 'pinky'] as const
+      const curlStr = names.map(f => `${f[0].toUpperCase()}:${fingerCurl(hand.landmarks, f).toFixed(2)}`).join(' ')
+      setDebugInfo(`Hand detected | ${curlStr}`)
+    }
+  }, [view, landmarkFrame])
+
+  // Manual capture — user holds gesture and presses Space or clicks Capture
+  const captureCurrentGesture = useCallback(() => {
     if (!landmarkFrame || landmarkFrame.hands.length === 0) return
     if (!currentGesture) return
-    if (recordingRef.current) return
 
-    const now = Date.now()
-    if (now - lastRecordedAt < recordCooldownMs) return
+    const hand = landmarkFrame.hands[0]
+    const sample = buildGestureSample(currentGesture, hand.landmarks)
+    setSamples(prev => [...prev, sample])
+    setLastRecordedAt(Date.now())
 
-    // Check each hand for the target gesture
-    for (const hand of landmarkFrame.hands) {
-      const result = classifyGesture(hand)
-      if (result && result.type === currentGesture && result.confidence > 0.5) {
-        recordingRef.current = true
-        const sample = buildGestureSample(currentGesture, hand.landmarks)
-        setSamples(prev => [...prev, sample])
-        setLastRecordedAt(now)
+    // Flash feedback
+    setCaptureFlash(true)
+    setTimeout(() => setCaptureFlash(false), 200)
 
-        const newCount = currentSampleCount + 1
-        setCurrentSampleCount(newCount)
+    const newCount = currentSampleCount + 1
+    setCurrentSampleCount(newCount)
 
-        if (newCount >= SAMPLES_PER_GESTURE) {
-          // Move to next gesture
-          const nextIdx = currentGestureIdx + 1
-          if (nextIdx < CORE_GESTURES.length) {
-            setCurrentGestureIdx(nextIdx)
-            setCurrentSampleCount(0)
-          } else {
-            // All gestures recorded
-            setView('sensitivity')
-          }
-        }
-
-        // Reset recording lock after cooldown
-        setTimeout(() => {
-          recordingRef.current = false
-        }, recordCooldownMs)
-        break
+    if (newCount >= SAMPLES_PER_GESTURE) {
+      const nextIdx = currentGestureIdx + 1
+      if (nextIdx < CORE_GESTURES.length) {
+        setCurrentGestureIdx(nextIdx)
+        setCurrentSampleCount(0)
+      } else {
+        setView('sensitivity')
       }
     }
-  }, [view, landmarkFrame, currentGesture, currentGestureIdx, currentSampleCount, lastRecordedAt])
+  }, [landmarkFrame, currentGesture, currentGestureIdx, currentSampleCount])
+
+  // Spacebar to capture
+  useEffect(() => {
+    if (view !== 'record') return
+    const handleKey = (e: KeyboardEvent): void => {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        captureCurrentGesture()
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [view, captureCurrentGesture])
 
   // ── Save handler ───────────────────────────────────────────────
 
@@ -457,10 +473,11 @@ export function Calibration({
         {currentGesture && (
           <div style={{
             padding: 16,
-            background: 'rgba(74, 158, 255, 0.1)',
-            border: '1px solid #4a9eff',
+            background: captureFlash ? 'rgba(107, 203, 119, 0.2)' : 'rgba(74, 158, 255, 0.1)',
+            border: `1px solid ${captureFlash ? '#6bcb77' : '#4a9eff'}`,
             borderRadius: 8,
-            marginBottom: 16
+            marginBottom: 16,
+            transition: 'all 0.15s'
           }}>
             <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
               {GESTURE_LABELS[currentGesture]} ({currentSampleCount}/{SAMPLES_PER_GESTURE})
@@ -468,17 +485,32 @@ export function Calibration({
             <div style={{ color: '#aaa', fontSize: 13 }}>
               {GESTURE_INSTRUCTIONS[currentGesture]}
             </div>
+            <div style={{ color: '#888', marginTop: 8, fontSize: 12 }}>
+              Hold the gesture, then press <strong style={{ color: '#fff' }}>Space</strong> or click Capture
+            </div>
             {!handsDetected && (
               <div style={{ color: '#ff6b6b', marginTop: 8, fontSize: 12 }}>
                 No hands detected
+              </div>
+            )}
+            {debugInfo && (
+              <div style={{ color: '#666', marginTop: 8, fontSize: 11, fontFamily: 'monospace' }}>
+                {debugInfo}
               </div>
             )}
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={captureCurrentGesture}
+            disabled={!handsDetected}
+            style={{ ...btnStyle, flex: 1 }}
+          >
+            Capture
+          </button>
           <button onClick={() => setView('sensitivity')} style={btnSecondaryStyle}>
-            Skip Recording
+            Skip
           </button>
           <button onClick={() => setView('position')} style={btnSecondaryStyle}>Back</button>
         </div>
@@ -576,17 +608,12 @@ export function Calibration({
 
   return (
     <div style={{
-      position: 'absolute',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
       padding: 32,
       background: 'rgba(20, 20, 25, 0.95)',
       borderRadius: 16,
       border: '1px solid #333',
       maxWidth: 520,
-      width: '90%',
-      zIndex: 1000
+      width: '90%'
     }}>
       {renderView()}
     </div>

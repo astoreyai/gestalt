@@ -2,18 +2,19 @@
  * Settings panel — configurable tracking, gestures, input, and visualization options.
  */
 
-import React, { useState, useCallback } from 'react'
+import React, { useState } from 'react'
 import type { AppConfig, ThemeMode } from '@shared/protocol'
 
 export interface SettingsProps {
   config: AppConfig
   onConfigChange: (config: Partial<AppConfig>) => void
   onClose: () => void
+  onOpenCalibration?: () => void
 }
 
 type SettingsTab = 'tracking' | 'gestures' | 'input' | 'bus' | 'visualization' | 'appearance'
 
-export function Settings({ config, onConfigChange, onClose }: SettingsProps): React.ReactElement {
+export function Settings({ config, onConfigChange, onClose, onOpenCalibration }: SettingsProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTab>('tracking')
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
@@ -84,7 +85,7 @@ export function Settings({ config, onConfigChange, onClose }: SettingsProps): Re
 
       <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
         {activeTab === 'tracking' && (
-          <TrackingSettings config={config} onChange={onConfigChange} />
+          <TrackingSettings config={config} onChange={onConfigChange} onOpenCalibration={onOpenCalibration} />
         )}
         {activeTab === 'gestures' && (
           <GestureSettings config={config} onChange={onConfigChange} />
@@ -150,8 +151,8 @@ function Toggle({ label, value, onChange }: {
   )
 }
 
-function TrackingSettings({ config, onChange }: {
-  config: AppConfig; onChange: (c: Partial<AppConfig>) => void
+function TrackingSettings({ config, onChange, onOpenCalibration }: {
+  config: AppConfig; onChange: (c: Partial<AppConfig>) => void; onOpenCalibration?: () => void
 }): React.ReactElement {
   return (
     <>
@@ -172,6 +173,32 @@ function TrackingSettings({ config, onChange }: {
         min={0.1} max={1.0} step={0.05}
         onChange={v => onChange({ tracking: { ...config.tracking, minConfidence: v } })}
       />
+      {onOpenCalibration && (
+        <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+          <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 8 }}>
+            Calibration Profiles
+          </label>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
+            Create, edit, or switch between calibration profiles for different users or hand sizes.
+          </p>
+          <button
+            onClick={onOpenCalibration}
+            style={{
+              width: '100%',
+              padding: '8px 14px',
+              background: 'var(--accent)',
+              border: 'none',
+              borderRadius: 6,
+              color: '#fff',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 'bold'
+            }}
+          >
+            Open Calibration
+          </button>
+        </div>
+      )}
     </>
   )
 }
@@ -179,18 +206,47 @@ function TrackingSettings({ config, onChange }: {
 function GestureSettings({ config, onChange }: {
   config: AppConfig; onChange: (c: Partial<AppConfig>) => void
 }): React.ReactElement {
+  // Responsiveness: 0 = cautious (high latency, few false positives), 1 = instant (low latency, more false positives)
+  // Maps to minHoldDuration [300..30] and cooldownDuration [400..50]
+  const responsiveness = 1 - ((config.gestures.minHoldDuration - 30) / 270)
+  const clampedResponsiveness = Math.max(0, Math.min(1, responsiveness))
+
+  const handleResponsiveness = (v: number): void => {
+    const holdMs = Math.round(300 - v * 270)   // 1.0 → 30ms, 0.0 → 300ms
+    const coolMs = Math.round(400 - v * 350)    // 1.0 → 50ms, 0.0 → 400ms
+    onChange({ gestures: { ...config.gestures, minHoldDuration: holdMs, cooldownDuration: coolMs } })
+  }
+
+  const responsivenessLabel = clampedResponsiveness > 0.7 ? 'Fast' : clampedResponsiveness > 0.3 ? 'Balanced' : 'Cautious'
+
   return (
     <>
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
+          Responsiveness: {responsivenessLabel}
+        </label>
+        <input
+          type="range"
+          min={0} max={1} step={0.05}
+          value={clampedResponsiveness}
+          onChange={e => handleResponsiveness(parseFloat(e.target.value))}
+          style={{ width: '100%' }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+          <span>Cautious</span>
+          <span>Fast</span>
+        </div>
+      </div>
       <Slider
         label="Min Hold Duration (ms)"
         value={config.gestures.minHoldDuration}
-        min={50} max={500} step={10}
+        min={30} max={300} step={10}
         onChange={v => onChange({ gestures: { ...config.gestures, minHoldDuration: v } })}
       />
       <Slider
         label="Cooldown Duration (ms)"
         value={config.gestures.cooldownDuration}
-        min={50} max={500} step={10}
+        min={50} max={400} step={10}
         onChange={v => onChange({ gestures: { ...config.gestures, cooldownDuration: v } })}
       />
       <Slider

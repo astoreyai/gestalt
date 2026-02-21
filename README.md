@@ -1,6 +1,6 @@
 # Tracking
 
-![Tests](https://img.shields.io/badge/tests-817%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1040%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
@@ -8,6 +8,45 @@
 ## Overview
 
 Tracking is a standalone Electron desktop application that lets users navigate 3D knowledge graphs and latent space manifolds using real-time hand gestures captured from a standard webcam. It combines MediaPipe hand tracking, Three.js 3D rendering, and a native Linux input addon to deliver sub-50ms end-to-end latency without any specialized hardware.
+
+## Quick Start
+
+```bash
+git clone https://github.com/astoreyai/tracking.git
+cd tracking
+npm install
+npm run native:build   # Compile the uinput addon (Linux only)
+npm run dev            # Launch with hot reload
+```
+
+To load sample data, open the app and use **File > Open** or drag-and-drop one of the files in `assets/samples/`:
+- `small-graph.json` — a small knowledge graph
+- `embeddings-5k.json` — a 5,000-point embedding manifold
+
+## Screenshots
+
+> **Note:** Screenshots have not yet been captured. To add them, run the app and take screenshots of the three views described below, then place the images in `docs/images/` and update the paths here.
+
+<!-- Capture instructions:
+1. Graph view:   Load small-graph.json, orbit to a good angle, take a screenshot.
+2. Manifold view: Load embeddings-5k.json, hover over a cluster, take a screenshot.
+3. Gesture overlay: Enable the gesture overlay (Settings > Show Overlay), perform a pinch gesture in front of the webcam, take a screenshot.
+
+Save images as:
+  docs/images/graph-view.png
+  docs/images/manifold-view.png
+  docs/images/gesture-overlay.png
+
+For an animated GIF demo:
+  - Use a screen recorder (e.g., peek, OBS, or gifski)
+  - Record ~15 seconds of gesture-driven navigation
+  - Save as docs/images/demo.gif
+  - Add: ![Demo](docs/images/demo.gif)
+-->
+
+| Graph View | Manifold View | Gesture Overlay |
+|:---:|:---:|:---:|
+| *`docs/images/graph-view.png`* | *`docs/images/manifold-view.png`* | *`docs/images/gesture-overlay.png`* |
 
 ## Features
 
@@ -21,6 +60,10 @@ Tracking is a standalone Electron desktop application that lets users navigate 3
 - **Configurable keymaps** -- map gestures to keyboard shortcuts, mouse actions, or program commands
 - **Dual data formats** -- load JSON and GraphML graphs, or JSON embedding manifolds
 - **Split view** -- toggle between graph, manifold, or side-by-side split view
+- **URL import** -- load graph and manifold data directly from a URL
+- **Auto-updater** -- automatic update checks and installation via electron-updater
+- **One-handed mode** -- accessibility mode mapping all actions to single-hand gestures
+- **Themes** -- light, dark, and system-following theme modes
 
 ## Architecture
 
@@ -86,7 +129,7 @@ sudo chmod 0660 /dev/uinput
 ## Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/astoreyai/tracking.git
 cd tracking
 npm install
 npm run native:build
@@ -119,7 +162,8 @@ npm run package:deb          # Package as .deb
 | `npm run test:coverage` | Run tests with coverage report    |
 | `npm run lint`       | Lint source with ESLint              |
 | `npm run typecheck`  | Type-check without emitting          |
-| `npm run demo`       | Run the connector bus demo client    |
+| `npm run demo`       | Run the gesture demo (colored output)|
+| `npm run demo:bus`   | Run the WebSocket bus demo           |
 
 ### Gesture Controls
 
@@ -152,6 +196,7 @@ interface AppConfig {
     minHoldDuration: number   // ms before onset transitions to hold (default: 150)
     cooldownDuration: number  // ms after release before re-trigger (default: 200)
     sensitivity: number       // 0-1, higher = more sensitive (default: 0.5)
+    oneHandedMode: boolean    // Single-hand mode for accessibility (default: false)
   }
   input: {
     mouseSpeed: number        // Cursor movement multiplier (default: 1.0)
@@ -166,6 +211,7 @@ interface AppConfig {
     lodEnabled: boolean       // Level-of-detail mesh simplification
     maxFps: number            // Rendering frame rate cap (default: 60)
   }
+  theme: 'light' | 'dark' | 'system'  // UI theme (default: 'system')
 }
 ```
 
@@ -241,7 +287,7 @@ Sample data files are included in `assets/samples/`.
 ## Testing
 
 ```bash
-npm test                 # Run all 817+ tests
+npm test                 # Run all 1040+ tests
 npm run test:coverage    # Run with coverage report (text, HTML, lcov)
 ```
 
@@ -357,6 +403,9 @@ assets/
   samples/                      # Sample data files
     small-graph.json            #   Small knowledge graph example
     embeddings-5k.json          #   5,000-point embedding dataset
+demos/
+  index.ts                      # Gesture recognition demo (colored output)
+  bus-demo.ts                   # WebSocket connector bus demo
 ```
 
 ## Tech Stack
@@ -373,6 +422,7 @@ assets/
 | Schema Validation   | Zod 3.22                                       |
 | WebSocket           | ws 8.16                                        |
 | Persistence         | Custom JsonStore (atomic file writes)          |
+| Auto-Updater        | electron-updater 6.x                           |
 | Native Addon        | N-API (node-gyp, node-addon-api)              |
 | Build Tool          | electron-vite (Vite)                           |
 | Testing             | Vitest 1.3, Testing Library, happy-dom        |
@@ -389,6 +439,14 @@ assets/
 | Gesture recognition accuracy | >= 95%       |
 | Memory (up to 1M nodes)      | < 1 GB       |
 | Max graph capacity           | 10M nodes, 50M edges (with LOD and culling) |
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes per release.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding guidelines, and contribution workflow.
 
 ## License
 

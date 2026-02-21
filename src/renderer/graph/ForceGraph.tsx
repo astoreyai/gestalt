@@ -89,72 +89,17 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         weight: edge.weight
       }))
 
-      // ── Try Web Worker path ───────────────────────────────────
-      if (typeof Worker !== 'undefined') {
-        let worker: Worker | null = null
-        try {
-          worker = new Worker(
-            new URL('../../../workers/force-layout.worker.ts', import.meta.url)
-          )
-        } catch {
-          // Worker construction can fail in some environments; fall through
-          worker = null
-        }
-
-        if (worker) {
-          const w = worker
-
-          // The worker sends nodeIds once on the first message, then sends
-          // positions as a flat Float64Array [x0, y0, z0, x1, y1, z1, ...]
-          // matching the nodeIds order. We keep a reusable Map to avoid
-          // allocating new objects every tick.
-          let workerNodeIds: string[] | null = null
-          const reusableMap = new Map<string, NodePosition>()
-
-          w.onmessage = (event: MessageEvent<WorkerResponse>) => {
-            const { type, positions: posArr, nodeIds: ids } = event.data
-            if (type !== 'positions' && type !== 'done') return
-
-            // Capture the stable node ID ordering from the first message
-            if (ids) {
-              workerNodeIds = ids
-              // Pre-populate the reusable map with position objects
-              for (const id of ids) {
-                reusableMap.set(id, { x: 0, y: 0, z: 0 })
-              }
-            }
-
-            if (!workerNodeIds) return
-
-            // Read Float64Array positions directly into the reusable Map
-            for (let i = 0; i < workerNodeIds.length; i++) {
-              const pos = reusableMap.get(workerNodeIds[i])!
-              pos.x = posArr[i * 3]
-              pos.y = posArr[i * 3 + 1]
-              pos.z = posArr[i * 3 + 2]
-            }
-
-            positionsRef.current = reusableMap
-            setPositions(new Map(reusableMap))
-          }
-
-          w.postMessage({ type: 'init', nodes: simNodes, edges: simEdges })
-
-          return () => {
-            w.postMessage({ type: 'stop' })
-            w.terminate()
-          }
-        }
-      }
-
-      // ── Synchronous fallback (no Worker available) ────────────
+      // Use synchronous simulation on the main thread via rAF.
+      // The Web Worker path had reliability issues (silent failures,
+      // Transferable buffer detachment). For graphs up to ~10K nodes,
+      // synchronous d3-force-3d in rAF is fast enough.
       const sim = createForceSimulation({ nodes: simNodes, edges: simEdges })
 
       const loop = (): void => {
         const result = sim.tick()
         const newPositions = new Map<string, NodePosition>()
         for (const [id, pos] of result.positions) {
-          newPositions.set(id, pos)
+          newPositions.set(id, { x: pos.x, y: pos.y, z: pos.z })
         }
         positionsRef.current = newPositions
         setPositions(newPositions)

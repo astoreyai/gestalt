@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { VirtualMouse } from '../mouse'
 import { VirtualKeyboard } from '../keyboard'
 import { MacroEngine } from '../macros'
-import type { MouseCommand, KeyboardCommand } from '@shared/protocol'
+import type { MouseCommand } from '@shared/protocol'
 import { IPC } from '@shared/ipc-channels'
 
 describe('VirtualMouse', () => {

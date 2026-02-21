@@ -1,8 +1,8 @@
 /**
  * Live demo script — generates sample data and demonstrates
- * the tracking app's capabilities without a webcam.
+ * the tracking app's gesture recognition pipeline with colored output.
  *
- * Run with: npx tsx demos/index.ts
+ * Run with: npm run demo
  */
 
 import {
@@ -15,33 +15,117 @@ import {
   LANDMARK
 } from '../src/shared/protocol'
 
+import {
+  DEFAULT_MAPPINGS,
+  mapGestureToCommand,
+  type GestureMapping
+} from '../src/renderer/gestures/mappings'
+
+// ─── ANSI Colors ─────────────────────────────────────────────
+
+const C = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  magenta: '\x1b[35m',
+  red: '\x1b[31m',
+  white: '\x1b[37m',
+  bgBlack: '\x1b[40m',
+}
+
+// ─── ASCII Hand Art ──────────────────────────────────────────
+
+const HAND_ART: Record<string, string[]> = {
+  [GestureType.OpenPalm]: [
+    '    \\  |  /',
+    '     \\ | / ',
+    '  ----   ----',
+    '  |         |',
+    '   \\       / ',
+    '    \\_____/  ',
+  ],
+  [GestureType.Point]: [
+    '       |     ',
+    '       |     ',
+    '  .----\'     ',
+    '  |          ',
+    '   \\         ',
+    '    \\_____   ',
+  ],
+  [GestureType.Pinch]: [
+    '    o--o     ',
+    '   /         ',
+    '  |          ',
+    '  |          ',
+    '   \\         ',
+    '    \\_____   ',
+  ],
+  [GestureType.Fist]: [
+    '  .-------.  ',
+    '  |  ===  |  ',
+    '  |  ===  |  ',
+    '  |  ===  |  ',
+    '   \\     /   ',
+    '    \\___/    ',
+  ],
+  [GestureType.LShape]: [
+    '       |     ',
+    '       |     ',
+    '  -----\'     ',
+    '  |          ',
+    '  |          ',
+    '  |_____     ',
+  ],
+  [GestureType.Twist]: [
+    '    o~~o     ',
+    '     \\|      ',
+    '  ----\'      ',
+    '  |          ',
+    '   \\         ',
+    '    \\_____   ',
+  ],
+  [GestureType.TwoHandPinch]: [
+    '  o--o  o--o ',
+    '  /       \\  ',
+    ' |         | ',
+    ' |         | ',
+    '  \\       /  ',
+    '   \\_____/   ',
+  ],
+  [GestureType.FlatDrag]: [
+    '  ---------  ',
+    '  |       |  ',
+    '  |  >>>  |  ',
+    '  |       |  ',
+    '   \\     /   ',
+    '    \\___/    ',
+  ],
+}
+
 // ─── Synthetic Hand Generator ──────────────────────────────────
 
 function generateOpenPalmLandmarks(): Landmark[] {
   const landmarks: Landmark[] = []
-  // Wrist
   landmarks.push({ x: 0.5, y: 0.7, z: 0 })
-  // Thumb (4 joints + tip)
   landmarks.push({ x: 0.42, y: 0.65, z: -0.01 })
   landmarks.push({ x: 0.38, y: 0.58, z: -0.02 })
   landmarks.push({ x: 0.35, y: 0.52, z: -0.02 })
   landmarks.push({ x: 0.33, y: 0.46, z: -0.02 })
-  // Index (4 points)
   landmarks.push({ x: 0.44, y: 0.55, z: 0 })
   landmarks.push({ x: 0.43, y: 0.45, z: 0 })
   landmarks.push({ x: 0.43, y: 0.38, z: 0 })
   landmarks.push({ x: 0.43, y: 0.32, z: 0 })
-  // Middle
   landmarks.push({ x: 0.50, y: 0.53, z: 0 })
   landmarks.push({ x: 0.50, y: 0.42, z: 0 })
   landmarks.push({ x: 0.50, y: 0.35, z: 0 })
   landmarks.push({ x: 0.50, y: 0.28, z: 0 })
-  // Ring
   landmarks.push({ x: 0.56, y: 0.55, z: 0 })
   landmarks.push({ x: 0.56, y: 0.45, z: 0 })
   landmarks.push({ x: 0.56, y: 0.38, z: 0 })
   landmarks.push({ x: 0.56, y: 0.32, z: 0 })
-  // Pinky
   landmarks.push({ x: 0.62, y: 0.58, z: 0 })
   landmarks.push({ x: 0.62, y: 0.48, z: 0 })
   landmarks.push({ x: 0.62, y: 0.42, z: 0 })
@@ -51,7 +135,6 @@ function generateOpenPalmLandmarks(): Landmark[] {
 
 function generatePinchLandmarks(): Landmark[] {
   const lm = generateOpenPalmLandmarks()
-  // Move thumb tip close to index tip
   lm[LANDMARK.THUMB_TIP] = { x: 0.44, y: 0.33, z: 0 }
   lm[LANDMARK.INDEX_TIP] = { x: 0.44, y: 0.33, z: 0.01 }
   return lm
@@ -59,17 +142,12 @@ function generatePinchLandmarks(): Landmark[] {
 
 function generatePointLandmarks(): Landmark[] {
   const lm = generateOpenPalmLandmarks()
-  // Curl all fingers except index
-  // Middle - curl
   lm[LANDMARK.MIDDLE_DIP] = { x: 0.50, y: 0.50, z: 0.05 }
   lm[LANDMARK.MIDDLE_TIP] = { x: 0.50, y: 0.55, z: 0.07 }
-  // Ring - curl
   lm[LANDMARK.RING_DIP] = { x: 0.56, y: 0.52, z: 0.05 }
   lm[LANDMARK.RING_TIP] = { x: 0.56, y: 0.57, z: 0.07 }
-  // Pinky - curl
   lm[LANDMARK.PINKY_DIP] = { x: 0.62, y: 0.50, z: 0.05 }
   lm[LANDMARK.PINKY_TIP] = { x: 0.62, y: 0.55, z: 0.07 }
-  // Thumb - tuck
   lm[LANDMARK.THUMB_IP] = { x: 0.45, y: 0.55, z: 0.04 }
   lm[LANDMARK.THUMB_TIP] = { x: 0.47, y: 0.52, z: 0.05 }
   return lm
@@ -81,7 +159,7 @@ interface DemoStep {
   name: string
   gesture: GestureType
   phase: GesturePhase
-  duration: number // ms
+  duration: number
   landmarks: () => Landmark[]
 }
 
@@ -108,7 +186,6 @@ function formatGestureEvent(step: DemoStep, t: number): GestureEvent {
 
 function formatFrame(step: DemoStep, t: number, frameId: number): LandmarkFrame {
   const lm = step.landmarks()
-  // Add subtle motion
   const motionX = Math.sin(t * 0.002) * 0.02
   const motionY = Math.cos(t * 0.003) * 0.015
   const movedLandmarks = lm.map(l => ({
@@ -131,39 +208,81 @@ function formatFrame(step: DemoStep, t: number, frameId: number): LandmarkFrame 
   }
 }
 
+function formatCommand(gesture: GestureEvent): string {
+  const cmd = mapGestureToCommand(gesture)
+  if (!cmd) return `${C.dim}(no mapping)${C.reset}`
+  if (cmd.target === 'mouse') return `${C.green}mouse.${cmd.action}${C.reset}`
+  if (cmd.target === 'keyboard') {
+    const keys = 'keys' in cmd && cmd.keys ? cmd.keys.join('+') : ('key' in cmd ? cmd.key : '?')
+    return `${C.magenta}key[${keys}]${C.reset}`
+  }
+  if (cmd.target === 'builtin') return `${C.yellow}builtin.${cmd.action}${C.reset}`
+  return `${C.dim}${cmd.target}.${cmd.action}${C.reset}`
+}
+
 // ─── Main ──────────────────────────────────────────────────────
 
 async function runDemo(): Promise<void> {
-  console.log('=== Tracking App — Live Demo ===\n')
-  console.log('This demo shows synthetic gesture sequences.\n')
+  console.log(`\n${C.bold}${C.cyan}  ╔══════════════════════════════════════════════╗${C.reset}`)
+  console.log(`${C.bold}${C.cyan}  ║     Tracking App — Gesture Recognition Demo  ║${C.reset}`)
+  console.log(`${C.bold}${C.cyan}  ╚══════════════════════════════════════════════╝${C.reset}\n`)
+  console.log(`${C.dim}  Simulating hand gestures with synthetic landmark data.${C.reset}`)
+  console.log(`${C.dim}  Each step shows: gesture type, phase, mapped command, and hand position.${C.reset}\n`)
 
   let globalTime = 0
   let frameId = 0
+  const gestureCounts: Record<string, number> = {}
 
   for (const step of DEMO_SEQUENCE) {
-    console.log(`--- ${step.name} (${step.duration}ms) ---`)
+    // Print ASCII hand art
+    const art = HAND_ART[step.gesture] || HAND_ART[GestureType.OpenPalm]
+    console.log(`${C.bold}${C.cyan}  ┌─ ${step.name} (${step.duration}ms) ${'─'.repeat(Math.max(0, 30 - step.name.length))}┐${C.reset}`)
+    for (const line of art) {
+      console.log(`${C.cyan}  │ ${line.padEnd(30)}│${C.reset}`)
+    }
+    console.log(`${C.cyan}  └${'─'.repeat(32)}┘${C.reset}`)
+
+    gestureCounts[step.gesture] = (gestureCounts[step.gesture] || 0) + 1
 
     const startTime = globalTime
+    let stepFrames = 0
     while (globalTime - startTime < step.duration) {
       const gesture = formatGestureEvent(step, globalTime)
       const frame = formatFrame(step, globalTime, frameId++)
+      const cmdStr = formatCommand(gesture)
 
-      console.log(
-        `  [${frameId.toString().padStart(4, '0')}] ` +
-        `${gesture.type.padEnd(15)} ${gesture.phase.padEnd(8)} ` +
-        `pos=(${gesture.position.x.toFixed(2)}, ${gesture.position.y.toFixed(2)}) ` +
-        `hands=${frame.hands.length} ` +
-        `conf=${gesture.confidence.toFixed(2)}`
-      )
+      if (stepFrames % 5 === 0) { // Print every 5th frame to reduce noise
+        console.log(
+          `  ${C.dim}[${frameId.toString().padStart(4, '0')}]${C.reset} ` +
+          `${C.cyan}${gesture.type.padEnd(15)}${C.reset} ` +
+          `${C.green}${gesture.phase.padEnd(8)}${C.reset} ` +
+          `${C.yellow}pos=(${gesture.position.x.toFixed(2)}, ${gesture.position.y.toFixed(2)})${C.reset} ` +
+          `hands=${frame.hands.length} ` +
+          `conf=${C.bold}${gesture.confidence.toFixed(2)}${C.reset} ` +
+          `-> ${cmdStr}`
+        )
+      }
 
+      stepFrames++
       globalTime += 33 // ~30 FPS
       await new Promise(r => setTimeout(r, 33))
     }
+
+    console.log('')
   }
 
-  console.log('\n=== Demo Complete ===')
-  console.log(`Total frames: ${frameId}`)
-  console.log(`Duration: ${(globalTime / 1000).toFixed(1)}s`)
+  // Stats summary
+  const durationSec = (globalTime / 1000).toFixed(1)
+  console.log(`${C.bold}${C.yellow}  ┌─ Summary ${'─'.repeat(22)}┐${C.reset}`)
+  console.log(`${C.yellow}  │ Total frames:  ${String(frameId).padStart(6)}          │${C.reset}`)
+  console.log(`${C.yellow}  │ Duration:      ${durationSec.padStart(5)}s          │${C.reset}`)
+  console.log(`${C.yellow}  │ Avg FPS:       ${(frameId / (globalTime / 1000)).toFixed(1).padStart(6)}          │${C.reset}`)
+  console.log(`${C.yellow}  │                                │${C.reset}`)
+  console.log(`${C.yellow}  │ Gestures per type:             │${C.reset}`)
+  for (const [gesture, count] of Object.entries(gestureCounts)) {
+    console.log(`${C.yellow}  │   ${gesture.padEnd(16)} ${String(count).padStart(3)} steps     │${C.reset}`)
+  }
+  console.log(`${C.yellow}  └${'─'.repeat(32)}┘${C.reset}\n`)
 }
 
 runDemo().catch(console.error)

@@ -45,7 +45,7 @@ export function HUD({ hasGraph, hasManifold, nodeCount, pointCount }: HUDProps):
       alignItems: 'center',
       pointerEvents: 'none'
     }}>
-      {/* Status */}
+      {/* Status — offset left to clear the Stats (FPS) panel */}
       <div style={{
         padding: '6px 14px',
         background: 'var(--bg-overlay)',
@@ -54,7 +54,8 @@ export function HUD({ hasGraph, hasManifold, nodeCount, pointCount }: HUDProps):
         display: 'flex',
         gap: 12,
         alignItems: 'center',
-        pointerEvents: 'auto'
+        pointerEvents: 'auto',
+        marginLeft: 84
       }}>
         <span
           role="status"

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { dispatchGesture, type DispatchContext } from '../dispatcher'
-import { useAppStore, useVisualStore, useDataStore, useGestureStore, useConfigStore, useUIStore } from '../store'
+import { useAppStore, useVisualStore, useDataStore, useGestureStore, useUIStore } from '../store'
 import { GestureType, GesturePhase, type GestureEvent } from '@shared/protocol'
 import type { GraphData, EmbeddingData } from '@shared/protocol'
 import { VIEW_MODE_LABELS } from '../ViewSwitcher'

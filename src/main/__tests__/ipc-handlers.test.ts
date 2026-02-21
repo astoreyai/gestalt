@@ -277,7 +277,7 @@ describe('FILE_LOAD handler', () => {
     const { readFile, stat } = await import('fs/promises')
     const mockStat = vi.mocked(stat)
     const mockReadFile = vi.mocked(readFile)
-    mockStat.mockResolvedValueOnce({ size: 1024 } as any)
+    mockStat.mockResolvedValueOnce({ size: 1024 } as import('fs').Stats)
     mockReadFile.mockResolvedValueOnce('file content here')
 
     const result = await invokeHandler(IPC.FILE_LOAD, '/home/user/Documents/test.json')
@@ -294,7 +294,7 @@ describe('FILE_LOAD handler', () => {
     const { stat } = await import('fs/promises')
     const mockStat = vi.mocked(stat)
     // 51MB
-    mockStat.mockResolvedValueOnce({ size: 51 * 1024 * 1024 } as any)
+    mockStat.mockResolvedValueOnce({ size: 51 * 1024 * 1024 } as import('fs').Stats)
 
     await expect(
       invokeHandler(IPC.FILE_LOAD, '/home/user/Documents/huge.bin')
@@ -304,7 +304,7 @@ describe('FILE_LOAD handler', () => {
   it('should reject a file at exactly the MAX_FILE_SIZE boundary + 1', async () => {
     const { stat } = await import('fs/promises')
     const mockStat = vi.mocked(stat)
-    mockStat.mockResolvedValueOnce({ size: 50 * 1024 * 1024 + 1 } as any)
+    mockStat.mockResolvedValueOnce({ size: 50 * 1024 * 1024 + 1 } as import('fs').Stats)
 
     await expect(
       invokeHandler(IPC.FILE_LOAD, '/home/user/Documents/boundary.bin')
@@ -315,7 +315,7 @@ describe('FILE_LOAD handler', () => {
     const { stat, readFile } = await import('fs/promises')
     const mockStat = vi.mocked(stat)
     const mockReadFile = vi.mocked(readFile)
-    mockStat.mockResolvedValueOnce({ size: 50 * 1024 * 1024 } as any)
+    mockStat.mockResolvedValueOnce({ size: 50 * 1024 * 1024 } as import('fs').Stats)
     mockReadFile.mockResolvedValueOnce('content')
 
     const result = await invokeHandler(IPC.FILE_LOAD, '/home/user/Documents/exact.bin')

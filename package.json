@@ -18,6 +18,7 @@
     "package:appimage": "electron-builder --linux AppImage",
     "package:deb": "electron-builder --linux deb",
     "demo": "tsx demos/index.ts",
+    "demo:bus": "tsx demos/bus-demo.ts",
     "test:live": "bash scripts/live-test.sh",
     "test:live:quick": "bash scripts/live-test.sh --quick",
     "test:live:ci": "bash scripts/live-test.sh --ci"

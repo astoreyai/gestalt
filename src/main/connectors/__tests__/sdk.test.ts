@@ -69,7 +69,7 @@ describe('SDK Connector', () => {
   it('should attempt reconnection on close when reconnect=true', async () => {
     vi.useFakeTimers()
     const options: ConnectorOptions = { reconnect: true, reconnectDelay: 100 }
-    const conn = await connect('test-program', [], options)
+    await connect('test-program', [], options)
     expect(MockWebSocket.instances).toHaveLength(1)
 
     // Simulate server-side close
@@ -86,7 +86,7 @@ describe('SDK Connector', () => {
   it('should use exponential backoff for reconnect delay', async () => {
     vi.useFakeTimers()
     const options: ConnectorOptions = { reconnect: true, reconnectDelay: 100 }
-    const conn = await connect('test-program', [], options)
+    await connect('test-program', [], options)
 
     // First disconnect
     MockWebSocket.instances[0].simulateClose()
@@ -111,7 +111,7 @@ describe('SDK Connector', () => {
       reconnectDelay: 10,
       maxReconnectAttempts: 2
     }
-    const conn = await connect('test-program', [], options)
+    await connect('test-program', [], options)
 
     // Disconnect and reconnect attempt 1
     MockWebSocket.instances[0].simulateClose()
@@ -134,7 +134,7 @@ describe('SDK Connector', () => {
   it('should not reconnect when reconnect=false', async () => {
     vi.useFakeTimers()
     const options: ConnectorOptions = { reconnect: false }
-    const conn = await connect('test-program', [], options)
+    await connect('test-program', [], options)
 
     MockWebSocket.instances[0].simulateClose()
     await vi.advanceTimersByTimeAsync(5000)
@@ -146,7 +146,7 @@ describe('SDK Connector', () => {
 
   it('should not reconnect by default (reconnect not set)', async () => {
     vi.useFakeTimers()
-    const conn = await connect('test-program', [])
+    await connect('test-program', [])
 
     MockWebSocket.instances[0].simulateClose()
     await vi.advanceTimersByTimeAsync(5000)

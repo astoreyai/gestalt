@@ -43,6 +43,7 @@ declare module 'd3-force-3d' {
     on(typenames: string, listener: ((...args: unknown[]) => void) | null): this
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- N is consumed by extending interfaces
   interface Force<N extends SimulationNode = SimulationNode> {
     (alpha: number): void
   }
