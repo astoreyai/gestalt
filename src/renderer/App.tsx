@@ -29,7 +29,9 @@ import { useHandTracker } from './hooks/useHandTracker'
 import { validateData } from './data/validators'
 import { dispatchGesture } from './controller/dispatcher'
 import type { SceneAction } from './controller/dispatcher'
-import type { GraphData, EmbeddingData, CalibrationProfile } from '@shared/protocol'
+import { GestureEngine } from './gestures/state'
+import type { GraphData, EmbeddingData, CalibrationProfile, GestureEvent } from '@shared/protocol'
+import { GesturePhase } from '@shared/protocol'
 
 export function App(): React.ReactElement {
   // P1-21: Use individual slice selectors instead of useAppStore() to avoid
@@ -48,6 +50,7 @@ export function App(): React.ReactElement {
   const setEmbeddingDataRaw = useDataStore((s) => s.setEmbeddingData)
 
   const activeGesture = useGestureStore((s) => s.activeGesture)
+  const setActiveGesture = useGestureStore((s) => s.setActiveGesture)
   const trackingEnabled = useGestureStore((s) => s.trackingEnabled)
 
   const config = useConfigStore((s) => s.config)
@@ -80,6 +83,18 @@ export function App(): React.ReactElement {
   )
 
   const orbitRef = useRef<OrbitControlsImpl>(null)
+  const gestureEngineRef = useRef<GestureEngine | null>(null)
+  const prevHandPosRef = useRef<{ x: number; y: number } | null>(null)
+
+  // Lazily create GestureEngine (persists across renders)
+  if (!gestureEngineRef.current) {
+    gestureEngineRef.current = new GestureEngine({
+      minOnsetFrames: config.gestures.minHoldDuration <= 50 ? 1 : 2,
+      minHoldDuration: config.gestures.minHoldDuration,
+      cooldownDuration: config.gestures.cooldownDuration,
+      sensitivity: config.gestures.sensitivity
+    })
+  }
 
   // Hand tracking via hook — graceful degradation on failure
   const { frame: landmarkFrame, error: trackerError } = useHandTracker({
@@ -95,11 +110,38 @@ export function App(): React.ReactElement {
     }
   }, [trackerError, addToast])
 
-  // Dispatch gesture events to scene actions (rotate, pan, zoom, select)
+  // Process landmark frames through GestureEngine → store → dispatcher → scene
   useEffect(() => {
-    if (!activeGesture || !trackingEnabled) return
+    if (!landmarkFrame || !trackingEnabled) return
 
-    const action: SceneAction = dispatchGesture(activeGesture, {
+    const engine = gestureEngineRef.current
+    if (!engine) return
+
+    const events = engine.processFrame(landmarkFrame)
+
+    // Find the most important event (prefer Hold/Onset over Release)
+    let bestEvent: GestureEvent | null = null
+    for (const ev of events) {
+      if (ev.phase === GesturePhase.Hold || ev.phase === GesturePhase.Onset) {
+        bestEvent = ev
+        break
+      }
+    }
+    // If only release events, pick the first
+    if (!bestEvent && events.length > 0) {
+      bestEvent = events[0]
+    }
+
+    // Push into the store so GestureOverlay can render it
+    setActiveGesture(bestEvent)
+
+    if (!bestEvent) {
+      prevHandPosRef.current = null
+      return
+    }
+
+    // Dispatch through the gesture→action mapper
+    const action: SceneAction = dispatchGesture(bestEvent, {
       viewMode,
       selectedNodeId,
       selectedClusterId,
@@ -109,11 +151,20 @@ export function App(): React.ReactElement {
     if (action.type === 'noop') return
 
     const controls = orbitRef.current
+    const handPos = bestEvent.position
+
     switch (action.type) {
       case 'select': {
-        // Use gesture position to select the nearest node
-        // For now, the 3D raycasting is handled by click events on the instanced mesh.
-        // Pinch select is a proximity-based selection: find closest node to gesture position.
+        // Find closest graph node to the hand's normalized screen position
+        if (graphData && (viewMode === 'graph' || viewMode === 'split')) {
+          // TODO: proper raycasting. For now, cycle selection on pinch.
+          const nodes = graphData.nodes
+          if (nodes.length > 0) {
+            const currentIdx = nodes.findIndex(n => n.id === selectedNodeId)
+            const nextIdx = (currentIdx + 1) % nodes.length
+            selectNode(nodes[nextIdx].id)
+          }
+        }
         break
       }
       case 'deselect':
@@ -124,7 +175,6 @@ export function App(): React.ReactElement {
         if (!controls) break
         const angle = (action.params.angle as number) * 0.05
         controls.autoRotate = false
-        // Rotate camera around the target on the Y axis
         const rt = controls.target
         const cam = controls.object
         const ox = cam.position.x - rt.x
@@ -139,13 +189,17 @@ export function App(): React.ReactElement {
       }
       case 'pan': {
         if (!controls) break
-        const dx = (action.params.dx as number) * 0.5
-        const dy = (action.params.dy as number) * 0.5
-        controls.target.x -= dx
-        controls.target.y += dy
-        controls.object.position.x -= dx
-        controls.object.position.y += dy
-        controls.update()
+        // Compute delta from previous hand position (not absolute)
+        const prev = prevHandPosRef.current
+        if (prev) {
+          const dx = (handPos.x - prev.x) * 30
+          const dy = (handPos.y - prev.y) * 30
+          controls.target.x -= dx
+          controls.target.y += dy
+          controls.object.position.x -= dx
+          controls.object.position.y += dy
+          controls.update()
+        }
         break
       }
       case 'zoom': {
@@ -158,7 +212,6 @@ export function App(): React.ReactElement {
         break
       }
       case 'navigate':
-        // Navigate to a point (manifold view) — move camera target
         if (controls) {
           const x = action.params.x as number
           const y = action.params.y as number
@@ -168,7 +221,20 @@ export function App(): React.ReactElement {
         }
         break
     }
-  }, [activeGesture, trackingEnabled, viewMode, selectedNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster])
+
+    // Track hand position for delta-based pan
+    prevHandPosRef.current = { x: handPos.x, y: handPos.y }
+  }, [landmarkFrame, trackingEnabled, viewMode, selectedNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData])
+
+  // Update gesture engine config when settings change
+  useEffect(() => {
+    gestureEngineRef.current?.updateConfig({
+      minOnsetFrames: config.gestures.minHoldDuration <= 50 ? 1 : 2,
+      minHoldDuration: config.gestures.minHoldDuration,
+      cooldownDuration: config.gestures.cooldownDuration,
+      sensitivity: config.gestures.sensitivity
+    })
+  }, [config.gestures.minHoldDuration, config.gestures.cooldownDuration, config.gestures.sensitivity])
 
   // Calibration profile state (backed by IPC persistence)
   const [profiles, setProfiles] = useState<CalibrationProfile[]>([])
