@@ -431,6 +431,7 @@ export function App(): React.ReactElement {
           {(viewMode === 'graph' || viewMode === 'split') && graphData && (
             <ForceGraph
               data={graphData}
+              selectedNodeId={selectedNodeId}
               onNodeClick={(id) => selectNode(id)}
               onNodeHover={(id) => hoverNode(id)}
             />
@@ -550,16 +551,28 @@ export function App(): React.ReactElement {
           />
         )}
 
-        {/* Settings Panel */}
-        {activeModal === 'settings' && (
+      </ModalContainer>
+
+      {/* Settings Panel — rendered outside ModalContainer as a side panel overlay */}
+      {activeModal === 'settings' && (
+        <>
+          <div
+            onClick={handleCloseModal}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.3)',
+              zIndex: 140
+            }}
+          />
           <Settings
             config={config}
             onConfigChange={updateConfig}
             onClose={handleCloseModal}
             onOpenCalibration={() => setActiveModal('calibration')}
           />
-        )}
-      </ModalContainer>
+        </>
+      )}
     </div>
   )
 }

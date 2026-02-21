@@ -74,6 +74,15 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
       }
       return { type: 'noop', params: {} }
 
+    case GestureType.Point:
+      if (gesture.phase === GesturePhase.Hold) {
+        return {
+          type: 'navigate',
+          params: { x: gesture.position.x, y: gesture.position.y, z: gesture.position.z }
+        }
+      }
+      return { type: 'noop', params: {} }
+
     case GestureType.FlatDrag:
       if (gesture.phase === GesturePhase.Hold) {
         return {
