@@ -10,12 +10,8 @@ import {
   type GestureEvent,
   type MouseCommand,
   type KeyboardCommand,
-  type GraphNode,
-  type GraphEdge,
   type GraphData,
-  type EmbeddingPoint,
-  type EmbeddingData,
-  type AppConfig
+  type EmbeddingData
 } from '../protocol'
 import { IPC } from '../ipc-channels'
 import type { BusMessage, BusRegisterMessage, BusGestureMessage } from '../bus-protocol'

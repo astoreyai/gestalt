@@ -29,6 +29,7 @@ export const IPC = {
   // Data loading
   FILE_OPEN_DIALOG: 'data:open-dialog',
   FILE_LOAD: 'data:load',
+  SAMPLE_LOAD: 'data:load-sample',
 
   // Calibration profiles
   PROFILE_LIST: 'profile:list',

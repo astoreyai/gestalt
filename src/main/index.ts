@@ -252,6 +252,25 @@ function setupIpcHandlers(): void {
     }
   })
 
+  // Load bundled sample files (no path security check — restricted to assets/samples/)
+  ipcMain.handle(IPC.SAMPLE_LOAD, async (_event, name: string) => {
+    // Only allow alphanumeric, dash, underscore, dot filenames
+    if (!/^[\w.-]+$/.test(name)) {
+      throw new Error('Invalid sample name')
+    }
+    const samplesDir = join(app.isPackaged
+      ? join(process.resourcesPath, 'assets', 'samples')
+      : join(__dirname, '../../assets/samples'))
+    const filePath = join(samplesDir, name)
+    // Verify resolved path stays within samples dir
+    const { resolve } = await import('path')
+    const resolved = resolve(filePath)
+    if (!resolved.startsWith(resolve(samplesDir))) {
+      throw new Error('Invalid sample path')
+    }
+    return await readFile(resolved, 'utf-8')
+  })
+
   ipcMain.handle(IPC.FILE_LOAD, async (_event, path: string) => {
     try {
       if (!isAllowedPath(path)) {

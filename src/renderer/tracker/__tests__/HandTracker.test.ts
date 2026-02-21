@@ -294,7 +294,7 @@ describe('filters.ts', () => {
 
     it('should handle duplicate timestamps gracefully', () => {
       const filter = new OneEuroFilter()
-      const v1 = filter.filter(10, 1.0)
+      filter.filter(10, 1.0)
       const v2 = filter.filter(20, 1.0) // same timestamp
       // Should not crash; returns some value
       expect(typeof v2).toBe('number')
@@ -434,7 +434,6 @@ describe('HandTracker', () => {
   let rafCallbacks: ((ts: number) => void)[]
   let originalRAF: typeof globalThis.requestAnimationFrame
   let originalCAF: typeof globalThis.cancelAnimationFrame
-  let originalPerfNow: typeof performance.now
   let mockVideoElement: Record<string, unknown>
   let mockStream: { getTracks: () => { stop: ReturnType<typeof vi.fn> }[] }
 
@@ -445,7 +444,7 @@ describe('HandTracker', () => {
     // Mock requestAnimationFrame to collect callbacks
     originalRAF = globalThis.requestAnimationFrame
     originalCAF = globalThis.cancelAnimationFrame
-    originalPerfNow = performance.now
+    // performance.now is available as-is in test environment
 
     let rafId = 0
     globalThis.requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {

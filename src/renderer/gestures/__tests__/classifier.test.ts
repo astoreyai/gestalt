@@ -170,11 +170,11 @@ function createHand(
 function createOpenPalmHand(handedness: 'left' | 'right' = 'right'): Hand {
   const overrides = {
     [LANDMARK.WRIST]: lm(0.5, 0.8, 0),
-    ...extendedFingerLandmarks('thumb', 0.35, 0.6),
-    ...extendedFingerLandmarks('index', 0.42, 0.55),
+    ...extendedFingerLandmarks('thumb', 0.25, 0.65),
+    ...extendedFingerLandmarks('index', 0.40, 0.55),
     ...extendedFingerLandmarks('middle', 0.50, 0.53),
-    ...extendedFingerLandmarks('ring', 0.58, 0.55),
-    ...extendedFingerLandmarks('pinky', 0.65, 0.6)
+    ...extendedFingerLandmarks('ring', 0.60, 0.55),
+    ...extendedFingerLandmarks('pinky', 0.70, 0.60)
   }
   return createHand(createLandmarks(overrides), handedness)
 }
@@ -209,11 +209,11 @@ function createPointHand(handedness: 'left' | 'right' = 'right'): Hand {
 function createLShapeHand(handedness: 'left' | 'right' = 'right'): Hand {
   const overrides = {
     [LANDMARK.WRIST]: lm(0.5, 0.8, 0),
-    ...extendedFingerLandmarks('thumb', 0.35, 0.6),
-    ...extendedFingerLandmarks('index', 0.42, 0.55),
+    ...extendedFingerLandmarks('thumb', 0.25, 0.65),
+    ...extendedFingerLandmarks('index', 0.40, 0.55),
     ...curledFingerLandmarks('middle', 0.50, 0.53),
-    ...curledFingerLandmarks('ring', 0.58, 0.55),
-    ...curledFingerLandmarks('pinky', 0.65, 0.6)
+    ...curledFingerLandmarks('ring', 0.60, 0.55),
+    ...curledFingerLandmarks('pinky', 0.70, 0.60)
   }
   return createHand(createLandmarks(overrides), handedness)
 }
@@ -244,11 +244,11 @@ function createPinchHand(handedness: 'left' | 'right' = 'right'): Hand {
 function createFlatDragHand(handedness: 'left' | 'right' = 'right'): Hand {
   const overrides = {
     [LANDMARK.WRIST]: lm(0.5, 0.8, 0),
-    ...extendedFingerLandmarks('thumb', 0.35, 0.6),
-    ...extendedFingerLandmarks('index', 0.42, 0.55),
+    ...extendedFingerLandmarks('thumb', 0.25, 0.65),
+    ...extendedFingerLandmarks('index', 0.40, 0.55),
     ...extendedFingerLandmarks('middle', 0.50, 0.53),
-    ...extendedFingerLandmarks('ring', 0.58, 0.55),
-    ...extendedFingerLandmarks('pinky', 0.65, 0.6)
+    ...extendedFingerLandmarks('ring', 0.60, 0.55),
+    ...extendedFingerLandmarks('pinky', 0.70, 0.60)
   }
   // All z values are 0 by default from extendedFingerLandmarks, so hand is flat
   return createHand(createLandmarks(overrides), handedness)
@@ -960,7 +960,7 @@ describe('GestureEngine', () => {
     hand2.landmarks[LANDMARK.MIDDLE_MCP] = lm(0.8, 0.3, 0) // Rotate significantly
 
     const events = engine.processFrame({ hands: [hand2], timestamp: 50, frameId: 1 })
-    const twistEvent = events.find((e) => e.type === GestureType.Twist)
+    const _twistEvent = events.find((e) => e.type === GestureType.Twist)
 
     // Whether twist is detected depends on rotation magnitude vs threshold
     // Just verify twist processing doesn't crash

@@ -284,7 +284,7 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
     activeGesture, lastGestureType, trackingEnabled,
     config, calibrated,
     error, toasts, activeModal,
-    ...rest
+    ..._rest
   } = partial as Partial<AppState>
 
   // Visual state

@@ -113,7 +113,7 @@ export class HandTracker {
         config.minTrackingConfidence ?? DEFAULT_CONFIG.minTrackingConfidence
     }
     this._smoothingConfig = config.smoothing !== undefined ? config.smoothing : {}
-    this._videoConstraints = config.videoConstraints ?? { width: 640, height: 480 }
+    this._videoConstraints = config.videoConstraints ?? { width: 640, height: 480, frameRate: { ideal: 60 } }
     this._useWorker = config.useWorker ?? false
   }
 

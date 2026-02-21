@@ -195,7 +195,7 @@ export function PointCloud({
 
   // Raycasting for hover and click
   const handlePointerMove = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
+    (_event: ThreeEvent<PointerEvent>) => {
       if (!pointsRef.current || !onPointHover) return
 
       raycasterRef.current.setFromCamera(pointer, camera)
@@ -215,7 +215,7 @@ export function PointCloud({
   )
 
   const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => {
+    (_event: ThreeEvent<MouseEvent>) => {
       if (!pointsRef.current || !onPointClick) return
 
       raycasterRef.current.setFromCamera(pointer, camera)

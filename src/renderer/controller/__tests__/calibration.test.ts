@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { type Landmark, type CalibrationProfile, type GestureSample, GestureType, LANDMARK } from '@shared/protocol'
+import { type Landmark, type CalibrationProfile, GestureType, LANDMARK } from '@shared/protocol'
 import {
   generateProfileId,
   nextProfileName,

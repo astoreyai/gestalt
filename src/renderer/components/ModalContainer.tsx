@@ -51,7 +51,9 @@ export function ModalContainer({ activeModal, onClose, children }: ModalContaine
           left: '50%',
           transform: 'translate(-50%, -50%)',
           zIndex: 150,
-          width: 400
+          width: 'min(500px, 90vw)',
+          maxHeight: '85vh',
+          overflowY: 'auto'
         }}
       >
         {children}

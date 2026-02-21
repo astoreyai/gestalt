@@ -1,5 +1,10 @@
 # Product Requirements Document (PRD): Hand-Tracked 3D Knowledge Graph & Latent Space Explorer
 
+> **Implementation Note (2026-02-20):** This PRD was written before development began. The
+> application was built as an all-TypeScript Electron app -- not the Python/REST/OAuth stack
+> described in some sections below. Stale sections are annotated with `[NOT IMPLEMENTED]`
+> and notes on what was built instead. The document is preserved as-is for reference.
+
 ## 1. Executive Summary
 The goal of this project is to develop a high-performance, real-time hand-tracking application that enables users to interact with 3D knowledge graphs and latent space manifolds using natural hand gestures. By leveraging computer vision and advanced 3D rendering, the system provides an intuitive interface for exploring complex data structures without traditional input devices.
 
@@ -65,21 +70,25 @@ The goal of this project is to develop a high-performance, real-time hand-tracki
 
 ### 4.5 Security
 - **Data Privacy:** Local processing of webcam feed (no video data sent to cloud).
-- **Encryption:** TLS 1.3 for data in transit; AES-256 for data at rest.
-- **Access Control:** Role-Based Access Control (RBAC) for sensitive graph datasets.
+- **Encryption:** TLS 1.3 for data in transit; AES-256 for data at rest. `[NOT IMPLEMENTED]` -- The app runs locally on a single machine. The WebSocket bus uses token-based authentication (`crypto.randomBytes`) and is bound to `127.0.0.1`. There is no network data transit requiring TLS and no encrypted-at-rest storage; config files are plain JSON with atomic writes and backup rotation.
+- **Access Control:** Role-Based Access Control (RBAC) for sensitive graph datasets. `[NOT IMPLEMENTED]` -- The app is single-user. Access control is handled at the OS level (file permissions, uinput group membership). The bus uses per-session token auth and rate limiting rather than RBAC.
 
 ## 5. Technical Specifications
 
 ### 5.1 Technology Stack
+`[NOT IMPLEMENTED — as originally specified]` The application is built entirely in TypeScript running in Electron. There is no Python backend, no Unity integration, and no VR/AR headset support. The actual stack: Electron 28 + React 18 + Three.js/React Three Fiber (renderer), MediaPipe WASM (tracking), N-API C++ addon for Linux uinput (native input), Zustand (state), Zod (validation), ws (WebSocket bus).
+
 - **Hand Tracking:** MediaPipe (Hand Landmarker/Gesture Recognizer).
 - **3D Engine:** Three.js (Web-based) or Unity (Native/VR/AR).
 - **Language:** Python (Back-end/Processing), TypeScript/JavaScript (Front-end).
-- **Hardware:** 
+- **Hardware:**
     - **Sensor Configuration:** 1-2 standard Webcams (minimum 720p).
     - **Stereo Vision:** Dual camera configuration for enhanced depth perception and gesture accuracy (triangulation of 21 hand landmarks).
     - **Optional:** VR/AR Headset support.
 
 ### 5.2 API Specification
+`[NOT IMPLEMENTED]` There is no REST API or OAuth/JWT. The app is a standalone desktop application. External integration uses a WebSocket connector bus (`ws://127.0.0.1:9876`) with a binary token auth scheme and JSON message protocol (register, gesture, data, ping/pong). See `src/main/connectors/CONNECTORS.md` for the actual protocol specification.
+
 - **Architecture:** RESTful API with OpenAPI 3.0 specification.
 - **Endpoints:**
     - `GET /graph/{id}`: Fetch graph structure.

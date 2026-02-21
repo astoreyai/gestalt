@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { join, dirname, basename } from 'path'
+import { join, dirname } from 'path'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync, chmodSync } from 'fs'
 import { tmpdir } from 'os'
 import { createPersistence, rotateBackups, type PersistenceAPI } from '../persistence'
@@ -578,7 +578,7 @@ describe('Persistence edge cases (P1-27)', () => {
       const corruptData = '<<<BINARY GARBAGE>>>'
       writeFileSync(tempFile, corruptData)
 
-      const _fresh = createPersistence(tempFile)
+      createPersistence(tempFile) // triggers corruption recovery
 
       // Verify backup was created with the corrupt content
       const dir = join(tempFile, '..')

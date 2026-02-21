@@ -55,12 +55,12 @@ export interface GestureConfig {
 
 /** Sensible default gesture configuration */
 export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
-  pinchThreshold: 0.05,
-  curlThreshold: 0.6,
-  extensionThreshold: 0.4,
-  minOnsetFrames: 3,
-  minHoldDuration: 150,
-  cooldownDuration: 200,
-  minConfidence: 0.7,
+  pinchThreshold: 0.1,
+  curlThreshold: 0.35,
+  extensionThreshold: 0.55,
+  minOnsetFrames: 2,
+  minHoldDuration: 80,
+  cooldownDuration: 120,
+  minConfidence: 0.5,
   twistMinRotation: 0.3
 }

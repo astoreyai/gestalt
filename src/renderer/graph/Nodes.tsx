@@ -2,8 +2,9 @@
  * Nodes component — renders graph nodes using THREE.InstancedMesh for performance.
  * Handles 10K+ nodes at 60 FPS by batching all nodes into a single draw call.
  */
-import React, { useRef, useMemo, useEffect, useCallback } from 'react'
+import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react'
 import { useFrame, ThreeEvent } from '@react-three/fiber'
+import { Html } from '@react-three/drei'
 import {
   Object3D,
   Color,
@@ -229,13 +230,39 @@ export const Nodes = React.memo(function Nodes({
   if (nodes.length === 0) return null
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[geometryFull, material, capacity]}
-      onClick={handleClick}
-      onPointerOver={handlePointerOver}
-      onPointerOut={handlePointerOut}
-      frustumCulled={false}
-    />
+    <group>
+      <instancedMesh
+        ref={meshRef}
+        args={[geometryFull, material, capacity]}
+        onClick={handleClick}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+        frustumCulled={false}
+      />
+      {/* Node labels — only render for manageable counts */}
+      {nodes.length <= 200 && nodes.map((node) => {
+        const pos = positions.get(node.id)
+        if (!pos) return null
+        const size = node.size ?? DEFAULT_SIZE
+        return (
+          <Html
+            key={node.id}
+            position={[pos.x, pos.y + size + 1.2, pos.z]}
+            center
+            style={{
+              pointerEvents: 'none',
+              userSelect: 'none',
+              whiteSpace: 'nowrap',
+              fontSize: 11,
+              color: node.id === selectedId ? '#fff' : 'rgba(220,220,220,0.85)',
+              fontWeight: node.id === selectedId ? 'bold' : 'normal',
+              textShadow: '0 0 4px rgba(0,0,0,0.8)'
+            }}
+          >
+            {node.label ?? node.id}
+          </Html>
+        )
+      })}
+    </group>
   )
 })
