@@ -35,7 +35,7 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration }:
       height: '100%',
       background: 'var(--panel-bg)',
       borderLeft: '1px solid var(--border)',
-      zIndex: 100,
+      zIndex: 150,
       display: 'flex',
       flexDirection: 'column'
     }}>
