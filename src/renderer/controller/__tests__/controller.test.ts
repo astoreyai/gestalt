@@ -114,12 +114,12 @@ describe('Gesture Dispatcher', () => {
       expect(action.type).toBe('noop')
     })
 
-    it('should dispatch noop for point gesture in graph mode', () => {
+    it('should dispatch navigate for point gesture in graph mode', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Point, GesturePhase.Hold),
         graphCtx
       )
-      expect(action.type).toBe('noop')
+      expect(action.type).toBe('navigate')
     })
   })
 

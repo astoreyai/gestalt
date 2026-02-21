@@ -44,6 +44,7 @@ const DEFAULT_SIZE = 1.0
 /** Pre-allocated reusable objects to avoid per-frame allocations (P1-22) */
 const _dummy = new Object3D()
 const _color = new Color()
+const _selectedColor = new Color('#ff6600')
 const _hoverColor = new Color('#ffffff')
 const _tempColor = new Color()
 
@@ -169,18 +170,20 @@ export const Nodes = React.memo(function Nodes({
       const pos = positions.get(node.id)
       if (!pos) continue
 
-      const size = Math.max(0.1, node.size ?? DEFAULT_SIZE)
+      const baseSize = Math.max(0.1, node.size ?? DEFAULT_SIZE)
+      const isSelected = node.id === selectedId
+      const isHovered = node.id === hoveredId
+      // Scale up selected node 2x, hovered 1.4x
+      const size = isSelected ? baseSize * 2.0 : isHovered ? baseSize * 1.4 : baseSize
+
       _dummy.position.set(pos.x, pos.y, pos.z)
       _dummy.scale.setScalar(size)
       _dummy.updateMatrix()
       mesh.setMatrixAt(i, _dummy.matrix)
 
-      // Color: base color, with emissive highlight for selected/hovered (P1-22)
-      const isSelected = node.id === selectedId
-      const isHovered = node.id === hoveredId
-
+      // Color: bright orange for selected, white tint for hovered (P1-22)
       if (isSelected) {
-        _color.copy(_hoverColor)
+        _color.copy(_selectedColor)
       } else if (isHovered) {
         _tempColor.copy(baseColors[i])
         _color.copy(_tempColor.lerp(_hoverColor, 0.4))

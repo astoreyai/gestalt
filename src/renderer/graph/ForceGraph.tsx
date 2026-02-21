@@ -28,6 +28,8 @@ export interface ForceGraphHandle {
 export interface ForceGraphProps {
   /** The graph data to visualize */
   data: GraphData
+  /** Currently selected node id (from store) */
+  selectedNodeId?: string | null
   /** Callback when a node is clicked */
   onNodeClick?: (id: string) => void
   /** Callback when a node is hovered */
@@ -40,12 +42,14 @@ export interface ForceGraphProps {
  * renders nodes/edges via instanced rendering.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
-  function ForceGraph({ data, onNodeClick, onNodeHover }, ref) {
+  function ForceGraph({ data, selectedNodeId, onNodeClick, onNodeHover }, ref) {
     const { camera } = useThree()
     const [positions, setPositions] = useState<Map<string, NodePosition>>(
       () => new Map()
     )
-    const [selectedId, setSelectedId] = useState<string | null>(null)
+    // Use prop if provided (from store), otherwise manage locally
+    const [localSelectedId, setLocalSelectedId] = useState<string | null>(null)
+    const selectedId = selectedNodeId !== undefined ? selectedNodeId : localSelectedId
     const [hoveredId, setHoveredId] = useState<string | null>(null)
     const positionsRef = useRef<Map<string, NodePosition>>(new Map())
     const animFrameRef = useRef<number>(0)
@@ -121,7 +125,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
 
     const handleNodeClick = useCallback(
       (id: string) => {
-        setSelectedId((prev) => (prev === id ? null : id))
+        setLocalSelectedId((prev) => (prev === id ? null : id))
         onNodeClick?.(id)
       },
       [onNodeClick]
