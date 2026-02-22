@@ -4,7 +4,9 @@ import { resolve } from 'path'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // Only externalize electron and Node builtins — bundle everything else (zod, ws, etc.)
+    // to eliminate the 1.3GB node_modules from the AppImage
+    plugins: [externalizeDepsPlugin({ exclude: ['zod', 'ws', 'd3-force-3d', 'electron-updater'] })],
     resolve: {
       alias: {
         '@shared': resolve(__dirname, 'src/shared'),
