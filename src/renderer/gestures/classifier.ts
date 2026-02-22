@@ -382,34 +382,33 @@ export function classifyGesture(
   const extThr = (gestureType: GestureType) =>
     previousType === gestureType ? config.extensionThreshold + hm : config.extensionThreshold
 
-  // Check fist early — all fingers curled. Must come before pinch because
+  // Pre-compute pinch distance for both fist-exclusion and pinch detection
+  const pinchThr = previousType === GestureType.Pinch
+    ? config.pinchThreshold + hm
+    : config.pinchThreshold
+  const pinch = cachedPinch && pinchThr === config.pinchThreshold
+    ? cachedPinch
+    : detectPinch(hand, { ...config, pinchThreshold: pinchThr })
+
+  // Check fist — all fingers curled. Must come before pinch in priority because
   // a closed fist naturally brings thumb tip near index tip, falsely triggering pinch.
-  // Thumb uses a much lower threshold because it curls sideways and MediaPipe
-  // consistently underreports its curl value (often 0.1-0.2 even when fully curled).
+  // HOWEVER: if thumb+index are in clear pinch range, this is a pinch NOT a fist,
+  // even if other fingers happen to be curled (natural resting pose during pinch).
   const fistCurlThr = curlThr(GestureType.Fist)
   const fourFingersCurled = curls.index > fistCurlThr
     && curls.middle > fistCurlThr
     && curls.ring > fistCurlThr
     && curls.pinky > fistCurlThr
-  // Thumb curl threshold scales with palm size — smaller hands report even lower thumb curl
-  const palmDist = distance(lm[LANDMARK.WRIST], lm[LANDMARK.MIDDLE_MCP])
-  const thumbFistThr = Math.max(0.04, 0.08 * Math.min(1, palmDist / 0.15))
-  const thumbCurledForFist = curls.thumb > thumbFistThr
-  if (fourFingersCurled && thumbCurledForFist) {
+  const thumbCurledForFist = curls.thumb > 0.08
+  // Pinch exclusion: if thumb-index distance is within pinch threshold, it's a pinch not a fist
+  const inPinchRange = pinch.detected || pinch.distance < pinchThr * 1.2
+  if (fourFingersCurled && thumbCurledForFist && !inPinchRange) {
     const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
     return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
   }
 
-  // Check pinch — thumb tip close to index tip, but index must not be fully curled
-  // (otherwise it's a fist, not a pinch)
+  // Check pinch — thumb tip close to index tip
   // Hysteresis: if already pinching, use a wider threshold to maintain
-  const pinchThr = previousType === GestureType.Pinch
-    ? config.pinchThreshold + hm
-    : config.pinchThreshold
-  // Use cached pinch if available and threshold matches; otherwise recompute
-  const pinch = cachedPinch && pinchThr === config.pinchThreshold
-    ? cachedPinch
-    : detectPinch(hand, { ...config, pinchThreshold: pinchThr })
   if (pinch.detected) {
     const confidence = Math.max(0.3, Math.min(1, 1 - pinch.distance / pinchThr))
     return { type: GestureType.Pinch, confidence }
