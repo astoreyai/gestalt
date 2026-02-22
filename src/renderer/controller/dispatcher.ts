@@ -33,8 +33,8 @@ export type DispatchResult = SceneAction | SceneAction[]
 /** Minimum confidence to dispatch an action (below this → noop) */
 const MIN_DISPATCH_CONFIDENCE = 0.3
 
-/** Pre-allocated noop action to avoid per-call object creation */
-const NOOP_ACTION: SceneAction = { type: 'noop', params: {} }
+/** Pre-allocated noop action to avoid per-call object creation (frozen to prevent mutation) */
+const NOOP_ACTION: SceneAction = Object.freeze({ type: 'noop', params: {} }) as SceneAction
 
 /** Dispatch a gesture event to a scene action based on view mode */
 export function dispatchGesture(
@@ -65,8 +65,10 @@ export function dispatchGesture(
     default:
       action = NOOP_ACTION
   }
-  // Tag action with hand for per-hand state tracking
-  action.hand = gesture.hand
+  // Tag action with hand for per-hand state tracking (skip frozen NOOP)
+  if (action !== NOOP_ACTION) {
+    action.hand = gesture.hand
+  }
   return action
 }
 

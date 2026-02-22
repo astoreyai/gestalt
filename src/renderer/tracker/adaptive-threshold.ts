@@ -73,7 +73,7 @@ export function computeTremorParams(
 ): TremorCompensation {
   const t = Math.max(0, Math.min(1, tremorLevel))
   return {
-    minHoldDuration: baseConfig.minHoldDuration + t * (MAX_TREMOR_HOLD - baseConfig.minHoldDuration),
+    minHoldDuration: baseConfig.minHoldDuration + t * Math.max(0, MAX_TREMOR_HOLD - baseConfig.minHoldDuration),
     pinchThreshold: baseConfig.pinchThreshold * (1 + t * (MAX_TREMOR_PINCH_SCALE - 1)),
     deadzone: t * MAX_TREMOR_DEADZONE
   }

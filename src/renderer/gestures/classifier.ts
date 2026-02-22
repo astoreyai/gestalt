@@ -374,12 +374,15 @@ function areFingersApproaching(hand: Hand): boolean {
   const relVx = indexVx - thumbVx
   const relVy = indexVy - thumbVy
 
-  // Direction from thumb to index
+  // Normalized direction from thumb to index (prevents distance bias)
   const dirX = index.x - thumb.x
   const dirY = index.y - thumb.y
+  const dirMag = Math.sqrt(dirX * dirX + dirY * dirY)
+  const ndx = dirMag > 0.000001 ? dirX / dirMag : 0
+  const ndy = dirMag > 0.000001 ? dirY / dirMag : 0
 
   // Dot product: positive = moving apart, negative = approaching
-  const rawDot = relVx * dirX + relVy * dirY
+  const rawDot = relVx * ndx + relVy * ndy
 
   // EMA-smooth the approach dot product over ~3 frames to reduce
   // single-frame velocity spikes that cause pinch flicker
@@ -531,10 +534,10 @@ const _curls: Record<FingerName, number> = { thumb: 0, index: 0, middle: 0, ring
  * Returns the gesture type and confidence, or null if no gesture detected.
  *
  * Priority order (most specific to least):
- * 1. Pinch (very specific thumb-index distance)
- * 2. Point (one finger extended)
- * 3. L-Shape (two fingers)
- * 4. Fist (all curled)
+ * 1. Fist (all curled — must precede pinch to avoid false triggers from closed fist)
+ * 2. Pinch (very specific thumb-index distance)
+ * 3. L-Shape (two fingers: thumb + index)
+ * 4. Point (one finger extended)
  * 5. Flat Drag (all extended + flat)
  * 6. Open Palm (all extended)
  *

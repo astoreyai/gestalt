@@ -380,7 +380,7 @@ export class GestureEngine {
             type: GestureType.Twist,
             phase,
             hand: hand.handedness,
-            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) / effectiveConfig.twistMinRotation) : 0,
+            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) / (effectiveConfig.twistMinRotation * 3)) : 0,
             position: handCenters.get(hand.handedness)!,
             timestamp,
             data: { rotation: twist.rotation }
@@ -434,9 +434,8 @@ export class GestureEngine {
             phase,
             hand: 'right', // Primary hand for two-hand gestures
             confidence: twoHandPinchDetected
-              ? Math.max(0, Math.min(
-                  1 - leftPinch.distance / effectiveConfig.pinchThreshold,
-                  1 - rightPinch.distance / effectiveConfig.pinchThreshold
+              ? Math.max(0.3, Math.min(1,
+                  1 - Math.min(leftPinch.distance, rightPinch.distance) / effectiveConfig.pinchThreshold
                 ))
               : 0,
             position: {

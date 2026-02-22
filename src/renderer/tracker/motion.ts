@@ -28,7 +28,12 @@ interface HandState {
 }
 
 export class HandMotionTracker {
-  private readonly alpha: number
+  /**
+   * EMA time constant in ms — derived from configured alpha assuming 30fps reference.
+   * tau = -dt_ref / ln(1 - alpha), where dt_ref = 33.3ms (30fps).
+   * Per-frame alpha is then: 1 - exp(-dt / tau), making smoothing frame-rate-independent.
+   */
+  private readonly tau: number
   private readonly states: Map<Handedness, HandState> = new Map()
   /** Pre-allocated output objects per hand to avoid GC */
   private readonly _outputLeft: HandMotionMetrics = { velocity: 0, rotationRate: 0, distanceFromOrigin: 0, handedness: 'left' }
@@ -37,7 +42,9 @@ export class HandMotionTracker {
   private readonly _results: HandMotionMetrics[] = []
 
   constructor(smoothingAlpha: number = 0.3) {
-    this.alpha = Math.max(0, Math.min(1, smoothingAlpha))
+    const alpha = Math.max(0.01, Math.min(0.99, smoothingAlpha))
+    // Convert per-frame alpha at 30fps reference to time constant
+    this.tau = -33.333 / Math.log(1 - alpha)
   }
 
   update(frame: LandmarkFrame): HandMotionMetrics[] {
@@ -53,14 +60,16 @@ export class HandMotionTracker {
       const cy = (wrist.y + middleMcp.y) / 2
       const cz = (wrist.z + middleMcp.z) / 2
 
-      // Compute orientation angle (average atan2 of 3 MCP joints relative to wrist)
+      // Compute orientation angle — average (dx, dy) components then single atan2
+      // (arithmetic averaging of atan2 angles is invalid at the +/-pi boundary)
       const mcpIndices = [LANDMARK.INDEX_MCP, LANDMARK.MIDDLE_MCP, LANDMARK.RING_MCP]
-      let sumAngle = 0
+      let avgDx = 0, avgDy = 0
       for (const idx of mcpIndices) {
         const mcp = lm[idx]
-        sumAngle += Math.atan2(mcp.y - wrist.y, mcp.x - wrist.x)
+        avgDx += mcp.x - wrist.x
+        avgDy += mcp.y - wrist.y
       }
-      const angle = sumAngle / mcpIndices.length
+      const angle = Math.atan2(avgDy / mcpIndices.length, avgDx / mcpIndices.length)
 
       const state = this.states.get(hand.handedness)
       const out = hand.handedness === 'left' ? this._outputLeft : this._outputRight
@@ -114,9 +123,10 @@ export class HandMotionTracker {
       if (dAngle < -Math.PI) dAngle += TWO_PI
       const rawRotation = Math.abs(dAngle) / dtSec
 
-      // EMA smoothing
-      state.smoothedVelocity = this.alpha * rawVelocity + (1 - this.alpha) * state.smoothedVelocity
-      state.smoothedRotation = this.alpha * rawRotation + (1 - this.alpha) * state.smoothedRotation
+      // Frame-rate-independent EMA: alpha_dt = 1 - exp(-dt / tau)
+      const alpha = 1 - Math.exp(-dt / this.tau)
+      state.smoothedVelocity = alpha * rawVelocity + (1 - alpha) * state.smoothedVelocity
+      state.smoothedRotation = alpha * rawRotation + (1 - alpha) * state.smoothedRotation
 
       // Update state
       state.centerX = cx
