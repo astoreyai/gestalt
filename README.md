@@ -1,6 +1,6 @@
 # Gestalt
 
-![Tests](https://img.shields.io/badge/tests-1041%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1461%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
@@ -301,7 +301,7 @@ Sample data files are included in `assets/samples/`.
 ## Testing
 
 ```bash
-npm test                 # Run all 1041 tests
+npm test                 # Run all 1461 tests
 npm run test:coverage    # Run with coverage report (text, HTML, lcov)
 ```
 
@@ -345,7 +345,7 @@ Tests use **Vitest 3** with **happy-dom** as the simulated browser environment a
 | Rendering frame rate | 60 FPS |
 | Hand tracking frequency | 60 FPS |
 | Gesture recognition accuracy | >= 95% |
-| Gesture classification throughput | > 950K/sec |
+| Gesture classification throughput | > 778K/sec |
 | Memory (up to 1M nodes) | < 1 GB |
 | Max graph capacity | 10M nodes, 50M edges (with LOD and culling) |
 

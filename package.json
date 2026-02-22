@@ -1,6 +1,6 @@
 {
   "name": "gestalt",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "description": "Hand-tracked 3D knowledge graph and embedding explorer with gesture control",
   "main": "dist/main/index.js",
   "scripts": {
