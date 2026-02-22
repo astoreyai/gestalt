@@ -169,8 +169,11 @@ export function analyzeHandPose(
     landmarks[LANDMARK.MIDDLE_TIP]
   )
 
-  const extensionValues = fingers.map((f) => (f.extended ? 1 : 0))
-  const palmOpenness = extensionValues.reduce<number>((a, b) => a + b, 0) / 5
+  let extSum = 0
+  for (const f of fingers) {
+    if (f.extended) extSum++
+  }
+  const palmOpenness = extSum / 5
 
   // Flatness: measure how coplanar the fingertips are by checking
   // deviation of fingertip z-values from the wrist plane
@@ -182,8 +185,11 @@ export function analyzeHandPose(
     LANDMARK.RING_TIP,
     LANDMARK.PINKY_TIP
   ]
-  const zDiffs = tipIndices.map((i) => Math.abs(landmarks[i].z - wristZ))
-  const avgZDiff = zDiffs.reduce((a, b) => a + b, 0) / zDiffs.length
+  let sumZDiff = 0
+  for (const i of tipIndices) {
+    sumZDiff += Math.abs(landmarks[i].z - wristZ)
+  }
+  const avgZDiff = sumZDiff / tipIndices.length
   // Normalize flatness: lower z deviation = flatter
   const handFlatness = Math.max(0, Math.min(1, 1 - avgZDiff * 10))
 
@@ -315,16 +321,21 @@ export function detectFlatDrag(
  * 4. Fist (all curled)
  * 5. Flat Drag (all extended + flat)
  * 6. Open Palm (all extended)
+ *
+ * @param previousType Optional previous classification for hysteresis — the
+ *   current gesture type gets a margin bonus to prevent boundary flickering.
  */
 export function classifyGesture(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  previousType?: GestureType | null
 ): { type: GestureType; confidence: number } | null {
   if (hand.score < config.minConfidence) {
     return null
   }
 
   const lm = hand.landmarks
+  const hm = config.hysteresisMargin ?? 0.04
 
   // P2-48: Pre-compute all 5 finger curls once to avoid redundant
   // recomputation across multiple detect* calls.
@@ -336,43 +347,56 @@ export function classifyGesture(
     pinky: fingerCurl(lm, 'pinky')
   }
 
+  // Hysteresis: if the previous classification matches the current candidate,
+  // apply a margin bonus (lower curl threshold, higher pinch threshold) so
+  // the gesture is "sticky" at boundaries.
+  const curlThr = (gestureType: GestureType) =>
+    previousType === gestureType ? config.curlThreshold - hm : config.curlThreshold
+  const extThr = (gestureType: GestureType) =>
+    previousType === gestureType ? config.extensionThreshold + hm : config.extensionThreshold
+
   // Check fist early — all fingers curled. Must come before pinch because
   // a closed fist naturally brings thumb tip near index tip, falsely triggering pinch.
   // Thumb uses a much lower threshold because it curls sideways and MediaPipe
   // consistently underreports its curl value (often 0.1-0.2 even when fully curled).
-  const fourFingersCurled = curls.index > config.curlThreshold
-    && curls.middle > config.curlThreshold
-    && curls.ring > config.curlThreshold
-    && curls.pinky > config.curlThreshold
+  const fistCurlThr = curlThr(GestureType.Fist)
+  const fourFingersCurled = curls.index > fistCurlThr
+    && curls.middle > fistCurlThr
+    && curls.ring > fistCurlThr
+    && curls.pinky > fistCurlThr
   const thumbCurledForFist = curls.thumb > 0.08
   if (fourFingersCurled && thumbCurledForFist) {
-    const avgCurl = (curls.index + curls.middle + curls.ring + curls.pinky) / 4
+    const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
     return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
   }
 
   // Check pinch — thumb tip close to index tip, but index must not be fully curled
   // (otherwise it's a fist, not a pinch)
-  const pinch = detectPinch(hand, config)
+  // Hysteresis: if already pinching, use a wider threshold to maintain
+  const pinchThr = previousType === GestureType.Pinch
+    ? config.pinchThreshold + hm
+    : config.pinchThreshold
+  const pinch = detectPinch(hand, { ...config, pinchThreshold: pinchThr })
   if (pinch.detected) {
-    const pinchThreshold = Math.max(0.001, config.pinchThreshold)
-    const confidence = Math.max(0, Math.min(1, 1 - pinch.distance / pinchThreshold))
+    const confidence = Math.max(0.3, Math.min(1, 1 - pinch.distance / pinchThr))
     return { type: GestureType.Pinch, confidence }
   }
 
-  // Pre-compute shared finger state
-  const indexExt = curls.index < config.extensionThreshold
-  const thumbExt = curls.thumb < config.extensionThreshold
-  const middleCurled = curls.middle > config.curlThreshold
-  const ringCurled = curls.ring > config.curlThreshold
-  const pinkyCurled = curls.pinky > config.curlThreshold
-  const otherCurls = [curls.middle, curls.ring, curls.pinky]
-  const avgOtherCurl = otherCurls.reduce((a, b) => a + b, 0) / otherCurls.length
+  // Pre-compute shared finger state with hysteresis-aware thresholds
+  const lCurlThr = curlThr(GestureType.LShape)
+  const indexExt = curls.index < extThr(GestureType.LShape)
+  const thumbExt = curls.thumb < extThr(GestureType.LShape)
+  const middleCurled = curls.middle > lCurlThr
+  const ringCurled = curls.ring > lCurlThr
+  const pinkyCurled = curls.pinky > lCurlThr
+  const avgOtherCurl = (curls.middle + curls.ring + curls.pinky) / 3
 
   // Check L-shape — thumb + index extended, rest curled. More specific than
   // Point (which only needs index), so it must be checked first.
   if (thumbExt && indexExt && middleCurled && ringCurled && pinkyCurled) {
-    const avgCurl = (curls.middle + curls.ring + curls.pinky) / 3
-    return { type: GestureType.LShape, confidence: Math.min(1, avgCurl + 0.3) }
+    const extQuality = ((1 - curls.thumb) + (1 - curls.index)) / 2
+    const curlQuality = (curls.middle + curls.ring + curls.pinky) / 3
+    return { type: GestureType.LShape, confidence: Math.min(1, (extQuality + curlQuality) / 2) }
   }
 
   // Check point — index finger is clearly the most extended finger.
@@ -383,17 +407,21 @@ export function classifyGesture(
   const relativeMatch = indexExt && (avgOtherCurl - curls.index) > 0.1
 
   if (absoluteMatch || relativeMatch) {
-    const confidence = Math.max(0.5, Math.min(1, (avgOtherCurl - curls.index) * 3 + 0.5))
+    // Confidence based on how clearly index is distinguished from other fingers
+    const curlDiff = avgOtherCurl - curls.index
+    const confidence = Math.max(0.3, Math.min(1, curlDiff / 0.2))
     return { type: GestureType.Point, confidence }
   }
 
   // Check flat drag and open palm — need all extended (use cached curls)
-  const allExtended = FINGER_NAMES.every((name) => curls[name] < config.extensionThreshold)
+  const palmExtThr = extThr(GestureType.OpenPalm)
+  const allExtended = FINGER_NAMES.every((name) => curls[name] < palmExtThr)
 
   if (allExtended) {
     const pose = analyzeHandPose(lm, config)
-    // Check flat drag — all extended + flat
-    if (pose.handFlatness > 0.7) {
+    // Check flat drag — all extended + flat (hysteresis: 0.70 to enter, 0.65 to exit)
+    const flatThreshold = previousType === GestureType.FlatDrag ? 0.65 : 0.70
+    if (pose.handFlatness > flatThreshold) {
       return { type: GestureType.FlatDrag, confidence: pose.handFlatness }
     }
     // Check open palm — all extended (least specific)
