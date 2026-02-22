@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-21
+
+### Added
+
+- **Transparent overlay mode**: Always-on-top transparent overlay for OS-level gesture control via uinput. Toggle with Super+G hotkey, HUD button, or system tray. Per-display bounds (avoids multi-monitor white-screen artifacts)
+- **Frameless window**: Custom title bar with drag region spacer and minimize/maximize/close controls
+- **Hand chord overlay**: `HandChordOverlay` component displaying per-finger curl states
+- **Per-joint One-Euro filter tuning**: 4 tiers (anchor/MCP/PIP/TIP) with separate z-axis parameters for each
+- **Z-axis median pre-filter**: 3-frame sliding window rejects single-frame MediaPipe z spikes before One-Euro filtering
+- **Orientation-adaptive curl weights**: `computePalmFacing()` via palm normal cross product; blend weights shift between angle-based and distance-based curl measurement based on camera-facing factor
+- **Thumb opposition measurement**: `thumbCurl()` uses tip-to-palm-center distance (70% opposition + 30% angle) instead of standard curl
+- **Pinch approach-vector gating**: `areFingersApproaching()` rejects false pinch when thumb and index are diverging via velocity dot product
+
+### Changed
+
+- **Build**: esbuild minifier (20-30x faster than terser), aggressive tree shaking, manual chunk splitting (three-core 646KB, r3f 267KB, react-vendor 143KB, app 182KB), console/debugger stripping in production
+- **AppImage**: 92MB → 71MB (maximum ASAR compression, source map exclusion, sample data compaction)
+- **Renderer bundle**: 2.5MB → 1.4MB (code splitting + esbuild minification)
+- **Main bundle**: 797KB → 370KB
+- **Sample data**: Compacted JSON + rounded floats (1.5MB → 807KB)
+- **HUD drag region**: Replaced full-bar `-webkit-app-region: drag` with dedicated flex spacer to avoid eating Canvas mouse events for OrbitControls
+- **Canvas alpha**: Kept `alpha: false` for GPU compositing performance (transparent window uses CSS background in normal mode)
+
 ## [0.2.0] - 2026-02-21
 
 ### Added
