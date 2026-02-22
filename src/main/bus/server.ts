@@ -34,8 +34,8 @@ export class BusServer {
   private connections: ConnectionManager
   private config: BusServerConfig
   private running = false
-  /** Per-client rate tracking: clientId -> array of message timestamps */
-  private rateLimits: Map<string, number[]> = new Map()
+  /** Per-client rate tracking: clientId -> ring buffer state */
+  private rateLimits: Map<string, { buf: number[]; head: number; count: number }> = new Map()
   /** Authentication token — clients must provide this to connect */
   private token: string
 
@@ -161,10 +161,10 @@ export class BusServer {
    */
   private isRateLimited(clientId: string): boolean {
     const now = Date.now()
-    let state = this.rateLimits.get(clientId) as { buf: number[]; head: number; count: number } | undefined
+    let state = this.rateLimits.get(clientId)
     if (!state) {
       state = { buf: new Array(RATE_LIMIT + 1).fill(0), head: 0, count: 0 }
-      this.rateLimits.set(clientId, state as unknown as number[])
+      this.rateLimits.set(clientId, state)
     }
 
     // Evict expired entries

@@ -58,6 +58,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     const [hoveredId, setHoveredId] = useState<string | null>(null)
     const positionsRef = useRef<Map<string, NodePosition>>(new Map())
     const animFrameRef = useRef<number>(0)
+    /** Throttle setPositions to ~30fps to halve React re-renders during simulation */
+    const lastSetTimeRef = useRef<number>(0)
+    const SET_POSITIONS_INTERVAL = 33 // ms (~30fps)
 
     // Expose imperative handle
     useImperativeHandle(
@@ -111,7 +114,13 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
           newPositions.set(id, { x: pos.x, y: pos.y, z: pos.z })
         }
         positionsRef.current = newPositions
-        setPositions(newPositions)
+
+        // Throttle React state updates to ~30fps; useFrame reads positionsRef directly
+        const now = performance.now()
+        if (result.done || now - lastSetTimeRef.current >= SET_POSITIONS_INTERVAL) {
+          lastSetTimeRef.current = now
+          setPositions(newPositions)
+        }
 
         if (!result.done) {
           animFrameRef.current = requestAnimationFrame(loop)

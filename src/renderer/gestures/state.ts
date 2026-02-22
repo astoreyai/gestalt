@@ -16,6 +16,9 @@ import {
 import { type GestureConfig, DEFAULT_GESTURE_CONFIG } from './types'
 import { classifyGesture, detectPinch, distance } from './classifier'
 
+const INV_PI = 1 / Math.PI
+const TWO_PI = 2 * Math.PI
+
 // ─── State Machine ──────────────────────────────────────────────────
 
 /** Internal states of the gesture state machine */
@@ -196,6 +199,9 @@ export class GestureEngine {
   private readonly _handCentersPool = new Map<Handedness, { x: number; y: number; z: number }>()
   private readonly _pinchResultsPool = new Map<Handedness, { detected: boolean; distance: number }>()
 
+  /** Cached effective config — invalidated when updateConfig is called */
+  private _effectiveConfig: GestureConfig | null = null
+
   constructor(config: Partial<GestureConfig> = {}) {
     this.config = { ...DEFAULT_GESTURE_CONFIG, ...config }
     this.stateMachineGrid = this._createStateMachineGrid()
@@ -260,8 +266,8 @@ export class GestureEngine {
 
     let rotation = currentAngle - prev.angle
     // Normalize to [-pi, pi]
-    if (rotation > Math.PI) rotation -= 2 * Math.PI
-    if (rotation < -Math.PI) rotation += 2 * Math.PI
+    if (rotation > Math.PI) rotation -= TWO_PI
+    if (rotation < -Math.PI) rotation += TWO_PI
 
     return {
       detected: Math.abs(rotation) > this.config.twistMinRotation,
@@ -278,6 +284,8 @@ export class GestureEngine {
   /** Pre-allocated position objects for handCenter to avoid per-call allocation */
   private readonly _handCenterLeft = { x: 0, y: 0, z: 0 }
   private readonly _handCenterRight = { x: 0, y: 0, z: 0 }
+
+
 
   /** Get the center position of a hand (palm center approximation) */
   private handCenter(hand: Hand): { x: number; y: number; z: number } {
@@ -331,14 +339,12 @@ export class GestureEngine {
     for (const hand of hands) {
       // Classify the primary gesture for this hand (with hysteresis from previous frame)
       const hIdx = handIndex(hand.handedness)
-      const classification = classifyGesture(hand, effectiveConfig, this._lastClassification[hIdx])
+      const cachedPinch = pinchResults.get(hand.handedness)!
+      const classification = classifyGesture(hand, effectiveConfig, this._lastClassification[hIdx], cachedPinch)
       this._lastClassification[hIdx] = classification?.type ?? null
 
       // Also check for twist independently
       const twist = this.detectTwist(hand, timestamp)
-
-      // Retrieve cached per-hand results
-      const cachedPinch = pinchResults.get(hand.handedness)!
 
       // Update all state machines for this hand
       for (const gestureType of SINGLE_HAND_TYPES) {
@@ -371,7 +377,7 @@ export class GestureEngine {
             type: GestureType.Twist,
             phase,
             hand: hand.handedness,
-            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) / Math.PI) : 0,
+            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) * INV_PI) : 0,
             position: handCenters.get(hand.handedness)!,
             timestamp,
             data: { rotation: twist.rotation }
@@ -425,8 +431,10 @@ export class GestureEngine {
             phase,
             hand: 'right', // Primary hand for two-hand gestures
             confidence: twoHandPinchDetected
-              ? Math.min(1 - leftPinch.distance / effectiveConfig.pinchThreshold,
-                         1 - rightPinch.distance / effectiveConfig.pinchThreshold)
+              ? Math.max(0, Math.min(
+                  1 - leftPinch.distance / effectiveConfig.pinchThreshold,
+                  1 - rightPinch.distance / effectiveConfig.pinchThreshold
+                ))
               : 0,
             position: {
               x: (leftCenter.x + rightCenter.x) / 2,
@@ -459,9 +467,17 @@ export class GestureEngine {
 
   /** Update configuration */
   updateConfig(config: Partial<GestureConfig>): void {
-    this.config = { ...this.config, ...config }
-    // Recreate state machines since thresholds may have changed
-    this.stateMachineGrid = this._createStateMachineGrid()
+    const prev = this.config
+    this.config = { ...prev, ...config }
+    this._effectiveConfig = null // invalidate cached effective config
+    // Only recreate state machines if timing parameters changed
+    if (
+      this.config.minOnsetFrames !== prev.minOnsetFrames ||
+      this.config.minHoldDuration !== prev.minHoldDuration ||
+      this.config.cooldownDuration !== prev.cooldownDuration
+    ) {
+      this.stateMachineGrid = this._createStateMachineGrid()
+    }
   }
 
   /** Get current configuration */
@@ -479,9 +495,10 @@ export class GestureEngine {
    * sensitivity=0.0 -> strict -> gestures hard to trigger
    */
   getEffectiveConfig(): GestureConfig {
+    if (this._effectiveConfig) return this._effectiveConfig
     const s = this.config.sensitivity ?? 0.5
     const scale = 0.5 + s // range [0.5, 1.5]
-    return {
+    this._effectiveConfig = {
       ...this.config,
       pinchThreshold: this.config.pinchThreshold * scale,
       extensionThreshold: this.config.extensionThreshold * (2 - scale),
@@ -490,5 +507,6 @@ export class GestureEngine {
       // Scale hysteresis proportionally so high-sensitivity doesn't make gestures overly sticky
       hysteresisMargin: this.config.hysteresisMargin * scale
     }
+    return this._effectiveConfig
   }
 }

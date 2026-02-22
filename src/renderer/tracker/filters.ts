@@ -61,6 +61,8 @@ const DEFAULT_MIN_CUTOFF = 1.0
 const DEFAULT_BETA = 0.03
 const DEFAULT_D_CUTOFF = 1.0
 
+const TWO_PI = 2.0 * Math.PI
+
 export class OneEuroFilter {
   private _minCutoff: number
   private _beta: number
@@ -79,10 +81,11 @@ export class OneEuroFilter {
 
   /**
    * Compute the smoothing factor alpha from a cutoff frequency and time period.
+   * Simplified: alpha = r / (1 + r) where r = TWO_PI * cutoff * te
    */
   private static alpha(cutoff: number, te: number): number {
-    const tau = 1.0 / (2.0 * Math.PI * cutoff)
-    return 1.0 / (1.0 + tau / te)
+    const r = TWO_PI * cutoff * te
+    return r / (1.0 + r)
   }
 
   /**
