@@ -29,3 +29,10 @@ npm-debug.log*
 # Cache / temp
 .cache/
 tmp/
+
+# Personal / editor settings
+CLAUDE.md
+.claude/
+.vscode/
+.idea/
+*.code-workspace
