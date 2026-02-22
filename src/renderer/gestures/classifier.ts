@@ -23,14 +23,26 @@ export function distance(a: Landmark, b: Landmark): number {
   return Number.isFinite(result) ? result : 0
 }
 
+/** Squared 3D Euclidean distance (avoids Math.sqrt for threshold comparisons) */
+export function distanceSquared(a: Landmark, b: Landmark): number {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  const dz = a.z - b.z
+  return dx * dx + dy * dy + dz * dz
+}
+
+// Pre-allocated vectors for angleBetween to avoid per-call object allocation
+const _ba = { x: 0, y: 0, z: 0 }
+const _bc = { x: 0, y: 0, z: 0 }
+
 /** Angle at point b formed by vectors b->a and b->c, in radians */
 export function angleBetween(a: Landmark, b: Landmark, c: Landmark): number {
-  const ba = { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
-  const bc = { x: c.x - b.x, y: c.y - b.y, z: c.z - b.z }
+  _ba.x = a.x - b.x; _ba.y = a.y - b.y; _ba.z = a.z - b.z
+  _bc.x = c.x - b.x; _bc.y = c.y - b.y; _bc.z = c.z - b.z
 
-  const dot = ba.x * bc.x + ba.y * bc.y + ba.z * bc.z
-  const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y + ba.z * ba.z)
-  const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y + bc.z * bc.z)
+  const dot = _ba.x * _bc.x + _ba.y * _bc.y + _ba.z * _bc.z
+  const magBA = Math.sqrt(_ba.x * _ba.x + _ba.y * _ba.y + _ba.z * _ba.z)
+  const magBC = Math.sqrt(_bc.x * _bc.x + _bc.y * _bc.y + _bc.z * _bc.z)
 
   if (magBA === 0 || magBC === 0) return 0
 
@@ -195,27 +207,30 @@ export function detectPinch(
 ): { detected: boolean; distance: number } {
   const thumbTip = hand.landmarks[LANDMARK.THUMB_TIP]
   const indexTip = hand.landmarks[LANDMARK.INDEX_TIP]
-  const dist = distance(thumbTip, indexTip)
+  const distSq = distanceSquared(thumbTip, indexTip)
+  const thresholdSq = config.pinchThreshold * config.pinchThreshold
 
   return {
-    detected: dist < config.pinchThreshold,
-    distance: dist
+    detected: distSq < thresholdSq,
+    distance: Math.sqrt(distSq)
   }
 }
 
 /**
  * Detect point gesture: only index finger extended, rest curled.
+ * Accepts optional pre-computed curls to avoid redundant fingerCurl() calls.
  */
 export function detectPoint(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  curls?: Record<FingerName, number>
 ): boolean {
   const lm = hand.landmarks
-  const indexExt = fingerExtended(lm, 'index', config)
-  // Thumb position ignored — most people leave it out when pointing
-  const middleCurled = fingerCurl(lm, 'middle') > config.curlThreshold
-  const ringCurled = fingerCurl(lm, 'ring') > config.curlThreshold
-  const pinkyCurled = fingerCurl(lm, 'pinky') > config.curlThreshold
+  const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
+  const indexExt = c.index < config.extensionThreshold
+  const middleCurled = c.middle > config.curlThreshold
+  const ringCurled = c.ring > config.curlThreshold
+  const pinkyCurled = c.pinky > config.curlThreshold
 
   return indexExt && middleCurled && ringCurled && pinkyCurled
 }
@@ -225,10 +240,12 @@ export function detectPoint(
  */
 export function detectOpenPalm(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  curls?: Record<FingerName, number>
 ): boolean {
   const lm = hand.landmarks
-  return FINGER_NAMES.every((name) => fingerExtended(lm, name, config))
+  const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
+  return FINGER_NAMES.every((name) => c[name] < config.extensionThreshold)
 }
 
 /**
@@ -236,10 +253,12 @@ export function detectOpenPalm(
  */
 export function detectFist(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  curls?: Record<FingerName, number>
 ): boolean {
   const lm = hand.landmarks
-  return FINGER_NAMES.every((name) => fingerCurl(lm, name) > config.curlThreshold)
+  const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
+  return FINGER_NAMES.every((name) => c[name] > config.curlThreshold)
 }
 
 /**
@@ -247,14 +266,16 @@ export function detectFist(
  */
 export function detectLShape(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  curls?: Record<FingerName, number>
 ): boolean {
   const lm = hand.landmarks
-  const thumbExt = fingerExtended(lm, 'thumb', config)
-  const indexExt = fingerExtended(lm, 'index', config)
-  const middleCurled = fingerCurl(lm, 'middle') > config.curlThreshold
-  const ringCurled = fingerCurl(lm, 'ring') > config.curlThreshold
-  const pinkyCurled = fingerCurl(lm, 'pinky') > config.curlThreshold
+  const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
+  const thumbExt = c.thumb < config.extensionThreshold
+  const indexExt = c.index < config.extensionThreshold
+  const middleCurled = c.middle > config.curlThreshold
+  const ringCurled = c.ring > config.curlThreshold
+  const pinkyCurled = c.pinky > config.curlThreshold
 
   return thumbExt && indexExt && middleCurled && ringCurled && pinkyCurled
 }
@@ -264,13 +285,15 @@ export function detectLShape(
  */
 export function detectFlatDrag(
   hand: Hand,
-  config: GestureConfig = DEFAULT_GESTURE_CONFIG
+  config: GestureConfig = DEFAULT_GESTURE_CONFIG,
+  curls?: Record<FingerName, number>
 ): boolean {
   const lm = hand.landmarks
-  const allExtended = FINGER_NAMES.every((name) => fingerExtended(lm, name, config))
+  const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
+  const allExtended = FINGER_NAMES.every((name) => c[name] < config.extensionThreshold)
+  if (!allExtended) return false
   const pose = analyzeHandPose(lm, config)
-
-  return allExtended && pose.handFlatness > 0.7
+  return pose.handFlatness > 0.7
 }
 
 // ─── Main Classifier ────────────────────────────────────────────────

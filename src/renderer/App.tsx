@@ -469,6 +469,16 @@ export function App(): React.ReactElement {
   const hasManifold = embeddingData !== null
   const hasData = hasGraph || hasManifold
 
+  // Memoize gesture/drag position arrays to preserve identity across renders
+  const memoGesturePositions = useMemo(
+    () => [gestureHoverPos.left, gestureHoverPos.right].filter(Boolean) as Array<{ x: number; y: number }>,
+    [gestureHoverPos.left, gestureHoverPos.right]
+  )
+  const memoDragPositions = useMemo(
+    () => [dragPositions.left, dragPositions.right].filter(Boolean) as Array<{ nodeId: string; x: number; y: number }>,
+    [dragPositions.left, dragPositions.right]
+  )
+
   // Click on empty space to deselect
   const handleRootClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -480,6 +490,15 @@ export function App(): React.ReactElement {
 
   // Root-level drag-and-drop (works without opening the DataLoader modal)
   const [rootDragOver, setRootDragOver] = useState(false)
+
+  const handleRootDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setRootDragOver(true)
+  }, [])
+
+  const handleRootDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setRootDragOver(false)
+  }, [])
 
   const handleRootDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -532,8 +551,8 @@ export function App(): React.ReactElement {
       }}
       onClick={handleRootClick}
       onDrop={handleRootDrop}
-      onDragOver={(e) => { e.preventDefault(); setRootDragOver(true) }}
-      onDragLeave={(e) => { if (e.currentTarget === e.target) setRootDragOver(false) }}
+      onDragOver={handleRootDragOver}
+      onDragLeave={handleRootDragLeave}
     >
       {/* 3D Canvas */}
       <Canvas
@@ -550,10 +569,10 @@ export function App(): React.ReactElement {
             <ForceGraph
               data={graphData}
               selectedNodeId={selectedNodeId}
-              gesturePositions={[gestureHoverPos.left, gestureHoverPos.right].filter(Boolean) as Array<{ x: number; y: number }>}
-              dragPositions={[dragPositions.left, dragPositions.right].filter(Boolean) as Array<{ nodeId: string; x: number; y: number }>}
-              onNodeClick={(id) => selectNode(id)}
-              onNodeHover={(id) => hoverNode(id)}
+              gesturePositions={memoGesturePositions}
+              dragPositions={memoDragPositions}
+              onNodeClick={selectNode}
+              onNodeHover={hoverNode}
             />
           )}
 

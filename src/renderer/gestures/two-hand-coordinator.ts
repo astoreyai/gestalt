@@ -357,19 +357,20 @@ export class TwoHandCoordinator {
   }
 }
 
-/** Map GestureType enum to a numeric value for inclusion in data records */
+/** Pre-computed mapping: GestureType enum → numeric value (module-level const) */
+const GESTURE_TYPE_TO_NUMBER: Record<GestureType, number> = {
+  [GestureType.Pinch]: 0,
+  [GestureType.Point]: 1,
+  [GestureType.OpenPalm]: 2,
+  [GestureType.Twist]: 3,
+  [GestureType.TwoHandPinch]: 4,
+  [GestureType.TwoHandRotate]: 5,
+  [GestureType.TwoHandPush]: 6,
+  [GestureType.FlatDrag]: 7,
+  [GestureType.Fist]: 8,
+  [GestureType.LShape]: 9
+}
+
 function gestureTypeToNumber(type: GestureType): number {
-  const mapping: Record<GestureType, number> = {
-    [GestureType.Pinch]: 0,
-    [GestureType.Point]: 1,
-    [GestureType.OpenPalm]: 2,
-    [GestureType.Twist]: 3,
-    [GestureType.TwoHandPinch]: 4,
-    [GestureType.TwoHandRotate]: 5,
-    [GestureType.TwoHandPush]: 6,
-    [GestureType.FlatDrag]: 7,
-    [GestureType.Fist]: 8,
-    [GestureType.LShape]: 9
-  }
-  return mapping[type] ?? -1
+  return GESTURE_TYPE_TO_NUMBER[type] ?? -1
 }

@@ -66,6 +66,15 @@ export class GestureStateMachine {
    */
   update(detected: boolean, timestamp: number): GesturePhase | null {
     switch (this.state) {
+      // Hold is the most frequent state (continuous gestures) — check first
+      case GestureState.Hold:
+        if (!detected) {
+          this.state = GestureState.Release
+          this.releaseTime = timestamp
+          return GesturePhase.Release
+        }
+        return GesturePhase.Hold
+
       case GestureState.Idle:
         if (detected) {
           this.state = GestureState.Onset
@@ -77,7 +86,6 @@ export class GestureStateMachine {
 
       case GestureState.Onset:
         if (!detected) {
-          // Gesture stopped before debounce completed — release immediately
           this.state = GestureState.Release
           this.releaseTime = timestamp
           return GesturePhase.Release
@@ -93,26 +101,16 @@ export class GestureStateMachine {
         }
         return null
 
-      case GestureState.Hold:
-        if (!detected) {
-          this.state = GestureState.Release
-          this.releaseTime = timestamp
-          return GesturePhase.Release
-        }
-        // Continue emitting Hold every frame for continuous gestures (pan, rotate, point)
-        return GesturePhase.Hold
-
-      case GestureState.Release:
-        // Transition to cooldown immediately
-        this.state = GestureState.Cooldown
-        this.releaseTime = timestamp
-        return null
-
       case GestureState.Cooldown:
         if (timestamp - this.releaseTime >= this.cooldownDuration) {
           this.state = GestureState.Idle
           this.onsetFrameCount = 0
         }
+        return null
+
+      case GestureState.Release:
+        this.state = GestureState.Cooldown
+        this.releaseTime = timestamp
         return null
 
       default:
@@ -162,6 +160,16 @@ function handIndex(hand: Handedness): number {
  * Takes LandmarkFrames, runs classifiers, manages state machines,
  * and emits GestureEvents.
  */
+/** Single-hand gesture types checked per frame (extracted to avoid per-frame allocation) */
+const SINGLE_HAND_TYPES: readonly GestureType[] = [
+  GestureType.Pinch,
+  GestureType.Point,
+  GestureType.OpenPalm,
+  GestureType.Fist,
+  GestureType.LShape,
+  GestureType.FlatDrag
+] as const
+
 export class GestureEngine {
   /**
    * 2D array of state machines: [handIndex (0|1)][gestureIndex].
@@ -170,6 +178,10 @@ export class GestureEngine {
   private stateMachineGrid: GestureStateMachine[][]
   private previousOrientations: Map<Handedness, HandOrientation> = new Map()
   private config: GestureConfig
+
+  /** Pooled Maps reused per frame to avoid allocation */
+  private readonly _handCentersPool = new Map<Handedness, { x: number; y: number; z: number }>()
+  private readonly _pinchResultsPool = new Map<Handedness, { detected: boolean; distance: number }>()
 
   constructor(config: Partial<GestureConfig> = {}) {
     this.config = { ...DEFAULT_GESTURE_CONFIG, ...config }
@@ -238,15 +250,19 @@ export class GestureEngine {
     }
   }
 
+  /** Pre-allocated position objects for handCenter to avoid per-call allocation */
+  private readonly _handCenterLeft = { x: 0, y: 0, z: 0 }
+  private readonly _handCenterRight = { x: 0, y: 0, z: 0 }
+
   /** Get the center position of a hand (palm center approximation) */
   private handCenter(hand: Hand): { x: number; y: number; z: number } {
     const wrist = hand.landmarks[LANDMARK.WRIST]
     const middleMcp = hand.landmarks[LANDMARK.MIDDLE_MCP]
-    return {
-      x: (wrist.x + middleMcp.x) / 2,
-      y: (wrist.y + middleMcp.y) / 2,
-      z: (wrist.z + middleMcp.z) / 2
-    }
+    const out = hand.handedness === 'left' ? this._handCenterLeft : this._handCenterRight
+    out.x = (wrist.x + middleMcp.x) / 2
+    out.y = (wrist.y + middleMcp.y) / 2
+    out.z = (wrist.z + middleMcp.z) / 2
+    return out
   }
 
   /** Get gesture-specific position: finger tip for Point, pinch midpoint for Pinch, palm for others */
@@ -275,9 +291,11 @@ export class GestureEngine {
     const { hands, timestamp } = frame
     const effectiveConfig = this.getEffectiveConfig()
 
-    // ─── Pre-compute per-hand results (avoids redundant calls) ─
-    const handCenters = new Map<Handedness, { x: number; y: number; z: number }>()
-    const pinchResults = new Map<Handedness, { detected: boolean; distance: number }>()
+    // ─── Pre-compute per-hand results (reuse pooled Maps) ─
+    const handCenters = this._handCentersPool
+    const pinchResults = this._pinchResultsPool
+    handCenters.clear()
+    pinchResults.clear()
 
     for (const hand of hands) {
       handCenters.set(hand.handedness, this.handCenter(hand))
@@ -296,16 +314,7 @@ export class GestureEngine {
       const cachedPinch = pinchResults.get(hand.handedness)!
 
       // Update all state machines for this hand
-      const singleHandTypes = [
-        GestureType.Pinch,
-        GestureType.Point,
-        GestureType.OpenPalm,
-        GestureType.Fist,
-        GestureType.LShape,
-        GestureType.FlatDrag
-      ]
-
-      for (const gestureType of singleHandTypes) {
+      for (const gestureType of SINGLE_HAND_TYPES) {
         const detected = classification?.type === gestureType
         const sm = this.getStateMachine(gestureType, hand.handedness)
         const phase = sm.update(detected, timestamp)

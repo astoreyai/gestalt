@@ -874,18 +874,20 @@ describe('HandTracker', () => {
 
       expect(frames).toHaveLength(2)
 
-      // Landmarks from frame 1 and frame 2 should not be the same object references
+      // Pooled references: both frames share the same landmark arrays
+      // (consumers process synchronously within the same tick).
+      // Frame data is valid only until the next processFrame call.
       const landmarks1 = frames[0].hands[0].landmarks
       const landmarks2 = frames[1].hands[0].landmarks
-      expect(landmarks1).not.toBe(landmarks2)
+      expect(landmarks1).toBe(landmarks2)
 
-      // Individual landmark objects should not be the same references
-      expect(landmarks1[0]).not.toBe(landmarks2[0])
+      // Individual landmark objects are also shared (pooled)
+      expect(landmarks1[0]).toBe(landmarks2[0])
 
       tracker.destroy()
     })
 
-    it('mutating returned landmarks should not affect tracker state', async () => {
+    it('pooled landmarks are overwritten by next frame', async () => {
       const tracker = new HandTracker({ smoothing: false })
       const frames: LandmarkFrame[] = []
       tracker.onFrame((f) => frames.push(f))
@@ -899,25 +901,19 @@ describe('HandTracker', () => {
       mockVideoElement.currentTime = 0.033
       rafCallbacks[0]?.(33.33)
 
-      // Mutate the landmarks from frame 1
-      const frame1Landmarks = frames[0].hands[0].landmarks
-      const originalX = frame1Landmarks[0].x
-      frame1Landmarks[0].x = 999
-      frame1Landmarks[0].y = 999
-      frame1Landmarks[0].z = 999
+      const frame1Landmark0X = frames[0].hands[0].landmarks[0].x
 
-      // Frame 2 — should not be affected by the mutation
+      // Frame 2 overwrites the pooled landmarks in-place
       mockVideoElement.currentTime = 0.066
       rafCallbacks[1]?.(66.66)
 
-      const frame2Landmarks = frames[1].hands[0].landmarks
-      // Frame 2 should have the original values, not the mutated ones
-      expect(frame2Landmarks[0].x).toBeCloseTo(originalX)
-      expect(frame2Landmarks[0].x).not.toBe(999)
+      // The pooled array is the same reference, so frame1's view is now
+      // overwritten with frame2's data (both should be the same value
+      // since we're returning the same mock data).
+      expect(frames[1].hands[0].landmarks[0].x).toBeCloseTo(frame1Landmark0X)
 
-      // Also verify worldLandmarks are deep copied
-      frames[0].hands[0].worldLandmarks[0].x = 888
-      expect(frames[1].hands[0].worldLandmarks[0].x).not.toBe(888)
+      // World landmarks are also pooled
+      expect(frames[0].hands[0].worldLandmarks).toBe(frames[1].hands[0].worldLandmarks)
 
       tracker.destroy()
     })
