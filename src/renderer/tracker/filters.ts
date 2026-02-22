@@ -103,7 +103,9 @@ export interface OneEuroFilterConfig {
 
 const DEFAULT_MIN_CUTOFF = 1.0
 const DEFAULT_BETA = 0.03
-const DEFAULT_D_CUTOFF = 1.0
+// dCutoff reduced from 1.0 to 0.4Hz: lower value applies more smoothing to
+// the derivative estimate, reducing noise-amplification at 60fps tracking rate
+const DEFAULT_D_CUTOFF = 0.4
 
 const TWO_PI = 2.0 * Math.PI
 
@@ -141,8 +143,9 @@ export class OneEuroFilter {
   filter(value: number, timestamp: number): number {
     if (this._lastTimestamp === null) {
       // First sample: initialize both filters, derivative is 0
+      // Use 1/60 as initial dt estimate (camera targets 60fps, not 30fps)
       this._lastTimestamp = timestamp
-      this._dxFilter.filter(0, OneEuroFilter.alpha(this._dCutoff, 1 / 30))
+      this._dxFilter.filter(0, OneEuroFilter.alpha(this._dCutoff, 1 / 60))
       return this._xFilter.filter(value, 1.0) // alpha=1 means no smoothing on first sample
     }
 
@@ -200,26 +203,26 @@ export interface PerAxisFilterConfig {
 
 /** Wrist + palm landmarks (indices 0, 1, 5, 9, 13, 17) */
 const ANCHOR_CONFIG: PerAxisFilterConfig = {
-  xy: { minCutoff: 0.8, beta: 0.01, dCutoff: 1.0 },
-  z:  { minCutoff: 0.5, beta: 0.005, dCutoff: 0.8 }
+  xy: { minCutoff: 0.8, beta: 0.01, dCutoff: 0.4 },
+  z:  { minCutoff: 0.5, beta: 0.005, dCutoff: 0.3 }
 }
 
 /** MCP joints (indices 2, 6, 10, 14, 18) */
 const MCP_CONFIG: PerAxisFilterConfig = {
-  xy: { minCutoff: 1.5, beta: 0.04, dCutoff: 1.0 },
-  z:  { minCutoff: 1.0, beta: 0.01, dCutoff: 0.8 }
+  xy: { minCutoff: 1.5, beta: 0.04, dCutoff: 0.4 },
+  z:  { minCutoff: 1.0, beta: 0.01, dCutoff: 0.3 }
 }
 
 /** PIP joints (indices 3, 7, 11, 15, 19) */
 const PIP_CONFIG: PerAxisFilterConfig = {
-  xy: { minCutoff: 2.0, beta: 0.06, dCutoff: 1.0 },
-  z:  { minCutoff: 1.5, beta: 0.02, dCutoff: 0.8 }
+  xy: { minCutoff: 2.0, beta: 0.06, dCutoff: 0.4 },
+  z:  { minCutoff: 1.5, beta: 0.02, dCutoff: 0.3 }
 }
 
 /** DIP + TIP joints (indices 4, 8, 12, 16, 20) — least smoothing */
 const TIP_CONFIG: PerAxisFilterConfig = {
-  xy: { minCutoff: 3.0, beta: 0.10, dCutoff: 1.0 },
-  z:  { minCutoff: 2.0, beta: 0.03, dCutoff: 0.8 }
+  xy: { minCutoff: 3.0, beta: 0.10, dCutoff: 0.4 },
+  z:  { minCutoff: 2.0, beta: 0.08, dCutoff: 0.3 }
 }
 
 // Map landmark index → filter preset

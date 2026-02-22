@@ -185,11 +185,14 @@ export function fingerCurl(
   const angleCurl = Math.max(0, Math.min(1, 1 - avgAngle * INV_PI))
 
   // Distance-based curl using world landmarks (metric space, no aspect-ratio distortion)
+  // tipToMcp / totalBoneLength: 1.0 when fully extended (collinear), ~0 when curled
+  // Must use sum of individual bone lengths (not sqrt of sum of squares) —
+  // by triangle inequality, sqrt(s1)+sqrt(s2)+sqrt(s3) >= sqrt(s1+s2+s3)
+  // for non-collinear (curled) segments, so the approximation underestimates curl.
   const tipToMcpSq = distanceSquared(distLm[idx.tip], distLm[idx.mcp])
-  const boneSq1 = distanceSquared(distLm[idx.mcp], distLm[idx.pip])
-  const boneSq2 = distanceSquared(distLm[idx.pip], distLm[idx.dip])
-  const boneSq3 = distanceSquared(distLm[idx.dip], distLm[idx.tip])
-  const boneLen = Math.sqrt(boneSq1) + Math.sqrt(boneSq2) + Math.sqrt(boneSq3)
+  const boneLen = Math.sqrt(distanceSquared(distLm[idx.mcp], distLm[idx.pip]))
+    + Math.sqrt(distanceSquared(distLm[idx.pip], distLm[idx.dip]))
+    + Math.sqrt(distanceSquared(distLm[idx.dip], distLm[idx.tip]))
   const boneLenSq = boneLen * boneLen
   const distRatio = boneLenSq > 0.000001 ? Math.sqrt(tipToMcpSq / boneLenSq) : 1
   const distCurl = Math.max(0, Math.min(1, 1 - distRatio))
@@ -318,7 +321,11 @@ export function computeHandFlatness(landmarks: Landmark[]): number {
   for (const i of tipIndices) {
     sumZDiff += Math.abs(landmarks[i].z - wristZ)
   }
-  return Math.max(0, Math.min(1, 1 - (sumZDiff / tipIndices.length) * 10))
+  const avgZDiff = sumZDiff / tipIndices.length
+  // Exponential decay: smooth transition from 1.0 (flat) to 0.0 (curled).
+  // k=15 calibrated so that avgZDiff ~0.05 (typical flat hand noise) → ~0.47,
+  // avgZDiff ~0.02 → ~0.74, avgZDiff ~0.10 → ~0.22, matching previous behavior.
+  return Math.exp(-15 * avgZDiff)
 }
 
 // ─── Pinch Velocity Tracking ────────────────────────────────────────
@@ -330,11 +337,16 @@ export function computeHandFlatness(landmarks: Landmark[]): number {
 interface PinchVelocityState {
   prevThumb: { x: number; y: number; z: number } | null
   prevIndex: { x: number; y: number; z: number } | null
+  /** EMA-smoothed approach dot product (negative = approaching) */
+  smoothedDot: number
 }
 
+/** EMA alpha for approach velocity smoothing (0.4 = moderate smoothing over ~3 frames) */
+const APPROACH_EMA_ALPHA = 0.4
+
 const _pinchVelocity: Record<string, PinchVelocityState> = {
-  left: { prevThumb: null, prevIndex: null },
-  right: { prevThumb: null, prevIndex: null }
+  left: { prevThumb: null, prevIndex: null, smoothedDot: 0 },
+  right: { prevThumb: null, prevIndex: null, smoothedDot: 0 }
 }
 
 /**
@@ -367,7 +379,11 @@ function areFingersApproaching(hand: Hand): boolean {
   const dirY = index.y - thumb.y
 
   // Dot product: positive = moving apart, negative = approaching
-  const dot = relVx * dirX + relVy * dirY
+  const rawDot = relVx * dirX + relVy * dirY
+
+  // EMA-smooth the approach dot product over ~3 frames to reduce
+  // single-frame velocity spikes that cause pinch flicker
+  state.smoothedDot = APPROACH_EMA_ALPHA * rawDot + (1 - APPROACH_EMA_ALPHA) * state.smoothedDot
 
   // Update previous positions
   state.prevThumb.x = thumb.x; state.prevThumb.y = thumb.y; state.prevThumb.z = thumb.z
@@ -377,9 +393,8 @@ function areFingersApproaching(hand: Hand): boolean {
   const distSq = distanceSquared(thumb, index)
   if (distSq < 0.005) return true
 
-  // dot < 0 means approaching; dot >= 0 means separating
-  // Small threshold to avoid rejecting slow approaches
-  return dot < 0.001
+  // smoothedDot < 0 means approaching; >= 0 means separating
+  return state.smoothedDot < 0
 }
 
 /** Reset pinch velocity tracking (call on hand tracking loss) */
@@ -388,8 +403,8 @@ export function resetPinchVelocity(handedness?: string): void {
     const s = _pinchVelocity[handedness]
     if (s) { s.prevThumb = null; s.prevIndex = null }
   } else {
-    _pinchVelocity.left = { prevThumb: null, prevIndex: null }
-    _pinchVelocity.right = { prevThumb: null, prevIndex: null }
+    _pinchVelocity.left = { prevThumb: null, prevIndex: null, smoothedDot: 0 }
+    _pinchVelocity.right = { prevThumb: null, prevIndex: null, smoothedDot: 0 }
   }
 }
 
@@ -530,11 +545,17 @@ export function classifyGesture(
   hand: Hand,
   config: GestureConfig = DEFAULT_GESTURE_CONFIG,
   previousType?: GestureType | null,
-  cachedPinch?: { detected: boolean; distance: number }
+  cachedPinch?: { detected: boolean; distance: number },
+  trackingQuality?: number
 ): { type: GestureType; confidence: number } | null {
   if (hand.score < config.minConfidence) {
     return null
   }
+
+  // Quality-gated confidence: when tracking quality is low (distorted bone
+  // proportions), reduce gesture confidence proportionally. Quality 100 = no
+  // reduction, quality 50 = halve confidence. Only applied when quality is provided.
+  const qualityScale = trackingQuality !== undefined ? Math.max(0.1, trackingQuality / 100) : 1
 
   const lm = hand.landmarks
   const wlm = hand.worldLandmarks
@@ -577,18 +598,24 @@ export function classifyGesture(
     && curls.middle > fistCurlThr
     && curls.ring > fistCurlThr
     && curls.pinky > fistCurlThr
-  const thumbCurledForFist = curls.thumb > 0.08
+  // Thumb threshold raised from 0.08 to 0.15: MediaPipe underreports thumb curl
+  // (reports ~0.12 even when fully curled), so 0.08 missed valid fists
+  const thumbCurledForFist = curls.thumb > 0.15
   // Pinch exclusion: if thumb-index distance is within pinch threshold, it's a pinch not a fist
   const inPinchRange = pinch.detected || pinch.distance < pinchThr * 1.2
   if (fourFingersCurled && thumbCurledForFist && !inPinchRange) {
     const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
-    return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
+    return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) * qualityScale }
   }
 
   // Check pinch — thumb tip close to index tip
   // Hysteresis: if already pinching, use a wider threshold to maintain
   if (pinch.detected) {
-    const confidence = Math.max(0.3, Math.min(1, 1 - pinch.distance / pinchThr))
+    // Logistic (sigmoid) confidence: better calibrated than linear ramp.
+    // Maps distance ratio [0, 1] to confidence [~1.0, ~0.3] with steep
+    // transition at the midpoint. k=8 gives ~0.95 at distance 0, ~0.5 at midpoint.
+    const ratio = pinch.distance / pinchThr
+    const confidence = Math.max(0.3, 1 / (1 + Math.exp(8 * (ratio - 0.5)))) * qualityScale
     return { type: GestureType.Pinch, confidence }
   }
 
@@ -606,7 +633,7 @@ export function classifyGesture(
   if (thumbExt && indexExt && middleCurled && ringCurled && pinkyCurled) {
     const extQuality = ((1 - curls.thumb) + (1 - curls.index)) / 2
     const curlQuality = (curls.middle + curls.ring + curls.pinky) / 3
-    return { type: GestureType.LShape, confidence: Math.min(1, (extQuality + curlQuality) / 2) }
+    return { type: GestureType.LShape, confidence: Math.min(1, (extQuality + curlQuality) / 2) * qualityScale }
   }
 
   // Check point — index finger is clearly the most extended finger.
@@ -619,7 +646,7 @@ export function classifyGesture(
   if (absoluteMatch || relativeMatch) {
     // Confidence based on how clearly index is distinguished from other fingers
     const curlDiff = avgOtherCurl - curls.index
-    const confidence = Math.max(0.3, Math.min(1, curlDiff / 0.2))
+    const confidence = Math.max(0.3, Math.min(1, curlDiff / 0.2)) * qualityScale
     return { type: GestureType.Point, confidence }
   }
 
@@ -633,14 +660,14 @@ export function classifyGesture(
     // Check flat drag — all extended + flat (hysteresis: 0.70 to enter, 0.65 to exit)
     const flatThreshold = previousType === GestureType.FlatDrag ? 0.65 : 0.70
     if (flatness > flatThreshold) {
-      return { type: GestureType.FlatDrag, confidence: flatness }
+      return { type: GestureType.FlatDrag, confidence: flatness * qualityScale }
     }
     // Check open palm — all extended (least specific)
     let extSum = 0
     for (const name of FINGER_NAMES) {
       if (curls[name] < palmExtThr) extSum++
     }
-    return { type: GestureType.OpenPalm, confidence: extSum / 5 }
+    return { type: GestureType.OpenPalm, confidence: (extSum / 5) * qualityScale }
   }
 
   return null

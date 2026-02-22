@@ -18,7 +18,6 @@ import type { GraphData } from '@shared/protocol'
 import { Nodes, type NodePosition } from './Nodes'
 import { Edges } from './Edges'
 import { createForceSimulation } from './force-layout'
-import type { WorkerResponse } from '../../../workers/force-layout.worker'
 
 /** Public imperative API exposed via ref */
 export interface ForceGraphHandle {
@@ -160,7 +159,43 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     const hoverVecRef = useRef(new Vector3())
     const hoverNdcRef = useRef(new Vector2())
 
-    // Gesture-based hover: cast rays from camera through each hand's finger position
+    // Spatial hash for O(nearby) gesture raycasting instead of O(all nodes)
+    const spatialHashRef = useRef<Map<string, string[]>>(new Map())
+    const spatialCellSizeRef = useRef(10)
+    const spatialHashVersionRef = useRef<Map<string, NodePosition> | null>(null)
+
+    // Rebuild spatial hash when positions change
+    useEffect(() => {
+      const pos = positionsRef.current
+      if (pos === spatialHashVersionRef.current) return
+      spatialHashVersionRef.current = pos
+
+      const hash = spatialHashRef.current
+      hash.clear()
+      if (pos.size === 0) return
+
+      // Adaptive cell size based on bounding box
+      let minX = Infinity, maxX = -Infinity
+      let minY = Infinity, maxY = -Infinity
+      let minZ = Infinity, maxZ = -Infinity
+      for (const p of pos.values()) {
+        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x
+        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y
+        if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z
+      }
+      const extent = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1)
+      const cellSize = Math.max(1, extent / 20) // ~20 cells per axis
+      spatialCellSizeRef.current = cellSize
+
+      for (const [id, p] of pos) {
+        const key = `${Math.floor(p.x / cellSize)},${Math.floor(p.y / cellSize)},${Math.floor(p.z / cellSize)}`
+        const bucket = hash.get(key)
+        if (bucket) bucket.push(id)
+        else hash.set(key, [id])
+      }
+    })
+
+    // Gesture-based hover: cast rays using spatial hash for O(nearby) lookup
     useEffect(() => {
       if (!gesturePositions || gesturePositions.length === 0) return
       const pos = positionsRef.current
@@ -169,26 +204,46 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       const raycaster = hoverRaycasterRef.current
       const v = hoverVecRef.current
       const ndc = hoverNdcRef.current
+      const hash = spatialHashRef.current
+      const cellSize = spatialCellSizeRef.current
       let closestId: string | null = null
       let closestDist = Infinity
+
+      const hoverThreshold = Math.max(2, camera.position.length() * 0.15)
+      const searchRadius = Math.ceil(hoverThreshold / cellSize) + 1
 
       for (const gp of gesturePositions) {
         ndc.set(gp.x * 2 - 1, -(gp.y * 2 - 1))
         raycaster.setFromCamera(ndc, camera)
         const ray = raycaster.ray
 
-        for (const [id, nodePos] of pos) {
-          v.set(nodePos.x, nodePos.y, nodePos.z)
-          const dist = ray.distanceToPoint(v)
-          if (dist < closestDist) {
-            closestDist = dist
-            closestId = id
+        // Estimate world position along ray at mid-scene depth
+        const approx = ray.at(camera.position.length() * 0.5, v)
+        const cx = Math.floor(approx.x / cellSize)
+        const cy = Math.floor(approx.y / cellSize)
+        const cz = Math.floor(approx.z / cellSize)
+
+        // Search only nearby cells
+        for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+          for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+            for (let dz = -searchRadius; dz <= searchRadius; dz++) {
+              const bucket = hash.get(`${cx + dx},${cy + dy},${cz + dz}`)
+              if (!bucket) continue
+              for (const id of bucket) {
+                const nodePos = pos.get(id)
+                if (!nodePos) continue
+                v.set(nodePos.x, nodePos.y, nodePos.z)
+                const dist = ray.distanceToPoint(v)
+                if (dist < closestDist) {
+                  closestDist = dist
+                  closestId = id
+                }
+              }
+            }
           }
         }
       }
 
-      // Scale hover threshold by camera distance for consistent interaction at all zoom levels
-      const hoverThreshold = Math.max(2, camera.position.length() * 0.15)
       if (closestId && closestDist < hoverThreshold) {
         handleNodeHover(closestId)
       } else {

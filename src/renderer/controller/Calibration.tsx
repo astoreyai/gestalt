@@ -12,7 +12,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react'
 import type { LandmarkFrame, CalibrationProfile, GestureSample } from '@shared/protocol'
 import { GestureType } from '@shared/protocol'
 import { extractFeatures } from '../gestures/features'
-import { classifyGesture, fingerCurl } from '../gestures/classifier'
+import { fingerCurl } from '../gestures/classifier'
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -136,13 +136,13 @@ export function Calibration({
   // Recording state
   const [currentGestureIdx, setCurrentGestureIdx] = useState(0)
   const [currentSampleCount, setCurrentSampleCount] = useState(0)
-  const [lastRecordedAt, setLastRecordedAt] = useState(0)
+  const [_lastRecordedAt, setLastRecordedAt] = useState(0)
 
   // Delete confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // Ref for recording cooldown
-  const recordCooldownMs = 800
+  const _recordCooldownMs = 800
   const recordingRef = useRef(false)
 
   const handsDetected = (landmarkFrame?.hands.length ?? 0) > 0

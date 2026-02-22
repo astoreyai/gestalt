@@ -72,7 +72,7 @@ export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   minHoldDuration: 40,
   cooldownDuration: 80,
   minConfidence: 0.5,
-  twistMinRotation: 0.3,
+  twistMinRotation: 0.5,
   twoHandOnsetGrace: 150,
   dollyZThreshold: 0.02,
   dollySpeed: 1.0,

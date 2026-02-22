@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { dispatchGesture, type DispatchContext } from '../dispatcher'
 import { useAppStore, useVisualStore, useDataStore, useGestureStore, useUIStore } from '../store'
-import { GestureType, GesturePhase, type GestureEvent } from '@shared/protocol'
+import { GestureType, GesturePhase, type GestureEvent, type SelectableObject } from '@shared/protocol'
 import type { GraphData, EmbeddingData } from '@shared/protocol'
 import { VIEW_MODE_LABELS } from '../ViewSwitcher'
 import { A11Y_COLORS, getTrackingStatusIndicator } from '../a11y'
-import { getSelectedNodeInfo, getSelectedPointInfo } from '../selection-info'
+import { getSelectedNodeInfo, getSelectedPointInfo, resolveSelectionInfo } from '../selection-info'
 
 function makeGesture(
   type: GestureType,
@@ -597,5 +597,192 @@ describe('Store Splitting', () => {
 
     expect(useDataStore.getState().embeddingData).not.toBeNull()
     expect(useVisualStore.getState().viewMode).toBe('manifold')
+  })
+})
+
+describe('Unified Selection Model', () => {
+  beforeEach(() => {
+    useVisualStore.setState({
+      selection: null,
+      secondarySelection: null,
+      hoveredObject: null,
+      selectedNodeId: null,
+      secondarySelectedNodeId: null,
+      hoveredNodeId: null,
+      selectedClusterId: null
+    })
+  })
+
+  describe('select()', () => {
+    it('should select a node and sync backward-compat aliases', () => {
+      const obj: SelectableObject = { kind: 'node', id: 'n1' }
+      useVisualStore.getState().select(obj)
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual(obj)
+      expect(s.selectedNodeId).toBe('n1')
+      expect(s.selectedClusterId).toBeNull()
+    })
+
+    it('should select a cluster and sync backward-compat aliases', () => {
+      const obj: SelectableObject = { kind: 'cluster', id: 3 }
+      useVisualStore.getState().select(obj)
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual(obj)
+      expect(s.selectedClusterId).toBe(3)
+      expect(s.selectedNodeId).toBeNull()
+    })
+
+    it('should select a point and sync selectedNodeId to point id', () => {
+      const obj: SelectableObject = { kind: 'point', id: 'p1' }
+      useVisualStore.getState().select(obj)
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual(obj)
+      expect(s.selectedNodeId).toBe('p1')
+    })
+
+    it('should deselect when passed null', () => {
+      useVisualStore.getState().select({ kind: 'node', id: 'n1' })
+      useVisualStore.getState().select(null)
+      const s = useVisualStore.getState()
+      expect(s.selection).toBeNull()
+      expect(s.selectedNodeId).toBeNull()
+      expect(s.selectedClusterId).toBeNull()
+    })
+  })
+
+  describe('selectSecondary()', () => {
+    it('should select secondary node independently', () => {
+      useVisualStore.getState().select({ kind: 'node', id: 'n1' })
+      useVisualStore.getState().selectSecondary({ kind: 'node', id: 'n2' })
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual({ kind: 'node', id: 'n1' })
+      expect(s.secondarySelection).toEqual({ kind: 'node', id: 'n2' })
+      expect(s.secondarySelectedNodeId).toBe('n2')
+    })
+
+    it('should clear secondary selection', () => {
+      useVisualStore.getState().selectSecondary({ kind: 'node', id: 'n2' })
+      useVisualStore.getState().selectSecondary(null)
+      expect(useVisualStore.getState().secondarySelection).toBeNull()
+      expect(useVisualStore.getState().secondarySelectedNodeId).toBeNull()
+    })
+  })
+
+  describe('hover()', () => {
+    it('should set hovered object and sync hoveredNodeId', () => {
+      useVisualStore.getState().hover({ kind: 'node', id: 'h1' })
+      const s = useVisualStore.getState()
+      expect(s.hoveredObject).toEqual({ kind: 'node', id: 'h1' })
+      expect(s.hoveredNodeId).toBe('h1')
+    })
+
+    it('should clear hover on null', () => {
+      useVisualStore.getState().hover({ kind: 'node', id: 'h1' })
+      useVisualStore.getState().hover(null)
+      expect(useVisualStore.getState().hoveredObject).toBeNull()
+      expect(useVisualStore.getState().hoveredNodeId).toBeNull()
+    })
+
+    it('should set null hoveredNodeId for cluster hover', () => {
+      useVisualStore.getState().hover({ kind: 'cluster', id: 2 })
+      const s = useVisualStore.getState()
+      expect(s.hoveredObject).toEqual({ kind: 'cluster', id: 2 })
+      expect(s.hoveredNodeId).toBeNull()
+    })
+  })
+
+  describe('backward-compat selectNode/selectCluster still work', () => {
+    it('selectNode sets unified selection', () => {
+      useVisualStore.getState().selectNode('n5')
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual({ kind: 'node', id: 'n5' })
+      expect(s.selectedNodeId).toBe('n5')
+    })
+
+    it('selectCluster sets unified selection', () => {
+      useVisualStore.getState().selectCluster(7)
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual({ kind: 'cluster', id: 7 })
+      expect(s.selectedClusterId).toBe(7)
+      expect(s.selectedNodeId).toBeNull()
+    })
+
+    it('selectNode(null) clears unified selection', () => {
+      useVisualStore.getState().select({ kind: 'node', id: 'n1' })
+      useVisualStore.getState().selectNode(null)
+      expect(useVisualStore.getState().selection).toBeNull()
+    })
+  })
+
+  describe('useAppStore.setState unified fields', () => {
+    it('should set selection through combined setState', () => {
+      useAppStore.setState({ selection: { kind: 'node', id: 'n3' } })
+      const s = useVisualStore.getState()
+      expect(s.selection).toEqual({ kind: 'node', id: 'n3' })
+      expect(s.selectedNodeId).toBe('n3')
+    })
+
+    it('should set cluster selection through combined setState', () => {
+      useAppStore.setState({ selection: { kind: 'cluster', id: 5 } })
+      const s = useVisualStore.getState()
+      expect(s.selectedClusterId).toBe(5)
+      expect(s.selectedNodeId).toBeNull()
+    })
+  })
+})
+
+describe('resolveSelectionInfo', () => {
+  const graph: GraphData = {
+    nodes: [{ id: 'a', label: 'Node A' }, { id: 'b', label: 'Node B' }],
+    edges: [{ source: 'a', target: 'b', weight: 0.5 }]
+  }
+  const embeddings: EmbeddingData = {
+    points: [{ id: 'p1', position: { x: 1, y: 2, z: 3 }, clusterId: 0 }],
+    clusters: [{ id: 0, label: 'C0', color: '#ff0000' }]
+  }
+
+  it('should return none for null selection', () => {
+    expect(resolveSelectionInfo(null, graph, embeddings)).toEqual({ kind: 'none' })
+  })
+
+  it('should resolve node selection', () => {
+    const result = resolveSelectionInfo({ kind: 'node', id: 'a' }, graph, embeddings)
+    expect(result.kind).toBe('node')
+    if (result.kind === 'node') {
+      expect(result.info.label).toBe('Node A')
+      expect(result.info.neighborCount).toBe(1)
+    }
+  })
+
+  it('should resolve point selection', () => {
+    const result = resolveSelectionInfo({ kind: 'point', id: 'p1' }, null, embeddings)
+    expect(result.kind).toBe('point')
+    if (result.kind === 'point') {
+      expect(result.info.position).toEqual({ x: 1, y: 2, z: 3 })
+    }
+  })
+
+  it('should resolve cluster selection', () => {
+    const result = resolveSelectionInfo({ kind: 'cluster', id: 0 }, null, embeddings)
+    expect(result.kind).toBe('cluster')
+    if (result.kind === 'cluster') {
+      expect(result.info.label).toBe('C0')
+      expect(result.info.color).toBe('#ff0000')
+    }
+  })
+
+  it('should fallback node to point if not found in graph', () => {
+    const result = resolveSelectionInfo({ kind: 'node', id: 'p1' }, graph, embeddings)
+    expect(result.kind).toBe('point')
+  })
+
+  it('should return none for non-existent node/point', () => {
+    const result = resolveSelectionInfo({ kind: 'node', id: 'zzz' }, graph, embeddings)
+    expect(result.kind).toBe('none')
+  })
+
+  it('should return none for non-existent cluster', () => {
+    const result = resolveSelectionInfo({ kind: 'cluster', id: 999 }, null, embeddings)
+    expect(result.kind).toBe('none')
   })
 })

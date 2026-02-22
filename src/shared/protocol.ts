@@ -173,6 +173,18 @@ export interface EmbeddingData {
   metadata?: Record<string, unknown>
 }
 
+// ─── Selection Model ─────────────────────────────────────────────
+
+/** Discriminated union for any selectable object in the scene.
+ * Used by the unified selection system (store, undo, dispatcher). */
+export type SelectableObject =
+  | { kind: 'node'; id: string }
+  | { kind: 'cluster'; id: number }
+  | { kind: 'point'; id: string }
+  | { kind: 'directory'; id: string; path: string }
+  | { kind: 'image'; id: string }
+  | { kind: 'document'; id: string }
+
 // ─── Calibration Profile Types ────────────────────────────────────
 
 /** A single recorded gesture sample for training */
@@ -221,6 +233,7 @@ export interface AppConfig {
     dollyZThreshold: number // normalized z-delta threshold for dolly detection
     dollySpeed: number // multiplier for dolly camera movement
     orbitSpeed: number // multiplier for orbit camera movement
+    tremorCompensation: number // 0-1, 0 = off, 1 = maximum tremor compensation
   }
   input: {
     mouseSpeed: number // Multiplier for cursor movement
@@ -232,11 +245,16 @@ export interface AppConfig {
   }
   overlay: {
     hotkey: string // Global hotkey to toggle overlay mode (e.g. 'Super+G')
+    showMotionMetrics: boolean // Show velocity/rotation near hands
+    showMotionTrail: boolean  // Show fading hand motion trails
   }
   visualization: {
     defaultView: ViewMode
     lodEnabled: boolean
     maxFps: number
+    showAxisLabels: boolean    // Show X/Y/Z axis labels in manifold view
+    showClusterLegend: boolean // Show cluster legend overlay in manifold view
+    proximityColoring: boolean // Tint nodes/points by hand distance
   }
   theme: ThemeMode
 }
@@ -255,7 +273,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     twoHandOnsetGrace: 100,
     dollyZThreshold: 0.02,
     dollySpeed: 1.0,
-    orbitSpeed: 1.0
+    orbitSpeed: 1.0,
+    tremorCompensation: 0
   },
   input: {
     mouseSpeed: 1.0,
@@ -266,12 +285,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     enabled: true
   },
   overlay: {
-    hotkey: 'Super+G'
+    hotkey: 'Super+G',
+    showMotionMetrics: false,
+    showMotionTrail: true
   },
   visualization: {
     defaultView: 'graph',
     lodEnabled: true,
-    maxFps: 60
+    maxFps: 60,
+    showAxisLabels: true,
+    showClusterLegend: true,
+    proximityColoring: true
   },
   theme: 'system'
 }

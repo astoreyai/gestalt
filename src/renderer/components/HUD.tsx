@@ -5,7 +5,7 @@
 
 import React from 'react'
 import type { CalibrationProfile } from '@shared/protocol'
-import { useVisualStore, useGestureStore, useUIStore } from '../controller/store'
+import { useVisualStore, useGestureStore, useUIStore, useConfigStore } from '../controller/store'
 import { ViewSwitcher } from '../controller/ViewSwitcher'
 import { A11Y_COLORS, getTrackingStatusIndicator } from '../controller/a11y'
 
@@ -22,6 +22,12 @@ const buttonStyle: DragStyle = {
   cursor: 'pointer',
   fontSize: 12,
   '-webkit-app-region': 'no-drag'
+}
+
+/** Active mode highlight style overlay (used for active view mode, one-handed toggle) */
+const activeHighlightStyle: React.CSSProperties = {
+  background: 'rgba(100, 140, 255, 0.3)',
+  border: '1px solid rgba(100, 140, 255, 0.6)'
 }
 
 /** Window control button style (minimize/maximize/close) */
@@ -50,9 +56,17 @@ export interface HUDProps {
   onProfileChange: (id: string) => void
   /** Number of detected cameras (0 = none, 1 = mono, 2+ = stereo capable) */
   cameraCount?: number
+  /** Tracking quality score [0, 100] from bone-length consistency */
+  trackingQuality?: number
+  /** Toggle gesture guide overlay */
+  onToggleGuide?: () => void
+  /** Whether the undo stack has entries */
+  canUndo?: boolean
+  /** Perform undo */
+  onUndo?: () => void
 }
 
-export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, pointCount, profiles, activeProfileId, onProfileChange, cameraCount = 0 }: HUDProps): React.ReactElement {
+export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, pointCount, profiles, activeProfileId, onProfileChange, cameraCount = 0, trackingQuality, onToggleGuide, canUndo, onUndo }: HUDProps): React.ReactElement {
   // P1-21: Use individual slice selectors instead of useAppStore()
   const viewMode = useVisualStore((s) => s.viewMode)
   const setViewMode = useVisualStore((s) => s.setViewMode)
@@ -60,6 +74,10 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
   const activeModal = useUIStore((s) => s.activeModal)
   const setActiveModal = useUIStore((s) => s.setActiveModal)
   const overlayMode = useUIStore((s) => s.overlayMode)
+  const config = useConfigStore((s) => s.config)
+  const updateConfig = useConfigStore((s) => s.updateConfig)
+
+  const oneHandedMode = config.gestures.oneHandedMode
 
   const activeProfile = profiles.find(p => p.id === activeProfileId)
 
@@ -118,6 +136,15 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         >
           {getTrackingStatusIndicator(trackingEnabled)} {trackingEnabled ? 'Tracking' : 'Paused'}
         </span>
+        {trackingEnabled && trackingQuality != null && (
+          <span style={{
+            color: trackingQuality >= 80 ? '#6bcb77' : trackingQuality >= 50 ? '#f0c040' : '#e05050',
+            fontSize: 11,
+            fontWeight: 'bold'
+          }}>
+            Q: {Math.round(trackingQuality)}%
+          </span>
+        )}
         {cameraCount > 0 && (
           <span style={{ color: cameraCount >= 2 ? A11Y_COLORS.trackingActive : A11Y_COLORS.textSecondary, fontSize: 11 }}>
             {cameraCount >= 2 ? 'Stereo' : 'Mono'}
@@ -198,6 +225,38 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         >
           Overlay
         </button>
+        {onToggleGuide && (
+          <button
+            onClick={onToggleGuide}
+            style={buttonStyle}
+            title="Gesture Guide (?)"
+            aria-label="Toggle gesture guide"
+          >
+            ?
+          </button>
+        )}
+        {onUndo && (
+          <button
+            onClick={onUndo}
+            style={{ ...buttonStyle, opacity: canUndo ? 1 : 0.4 }}
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo last action"
+            disabled={!canUndo}
+          >
+            Undo
+          </button>
+        )}
+        <button
+          data-testid="one-handed-toggle"
+          onClick={() => updateConfig({
+            gestures: { ...config.gestures, oneHandedMode: !oneHandedMode }
+          })}
+          style={oneHandedMode ? { ...buttonStyle, ...activeHighlightStyle } : buttonStyle}
+          title="Toggle one-handed mode"
+          aria-label="Toggle one-handed mode"
+        >
+          1H
+        </button>
 
         {/* Window controls (frameless) */}
         <div style={{ display: 'flex', gap: 2, marginLeft: 8 }}>
@@ -219,6 +278,28 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
           </button>
         </div>
       </div>
+
+      {/* Split mode labels — show which hand controls which view */}
+      {viewMode === 'split' && (
+        <div
+          data-testid="split-labels"
+          style={{
+            position: 'absolute',
+            top: 48,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '4px 12px',
+            background: 'var(--bg-overlay)',
+            borderRadius: 6,
+            fontSize: 11,
+            color: 'var(--button-text)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          Left Hand &rarr; Graph &nbsp;|&nbsp; Right Hand &rarr; Manifold
+        </div>
+      )}
     </div>
   )
 })
