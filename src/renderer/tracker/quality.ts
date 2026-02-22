@@ -32,14 +32,15 @@ const BONE_SEGMENTS: [number, number][] = [
 
 /**
  * Expected bone-length ratios relative to palm size (wrist-to-middle-MCP).
- * These approximate typical human hand proportions.
+ * Based on anthropometric phalangeal proportions (Buchholz et al. 1992, Garrett 1971).
+ * Values are averages across adult male/female hands normalized to palm length.
  */
 const EXPECTED_RATIOS: number[] = [
-  0.45, 0.28, 0.22,  // Index: MCP-PIP, PIP-DIP, DIP-TIP
-  0.50, 0.30, 0.22,  // Middle: MCP-PIP, PIP-DIP, DIP-TIP
-  0.42, 0.27, 0.20,  // Ring: MCP-PIP, PIP-DIP, DIP-TIP
-  0.35, 0.22, 0.18,  // Pinky: MCP-PIP, PIP-DIP, DIP-TIP
-  0.30, 0.22,         // Thumb: MCP-IP, IP-TIP
+  0.47, 0.26, 0.19,  // Index: MCP-PIP, PIP-DIP, DIP-TIP
+  0.52, 0.30, 0.20,  // Middle: MCP-PIP, PIP-DIP, DIP-TIP
+  0.45, 0.27, 0.19,  // Ring: MCP-PIP, PIP-DIP, DIP-TIP
+  0.35, 0.20, 0.16,  // Pinky: MCP-PIP, PIP-DIP, DIP-TIP
+  0.32, 0.24,         // Thumb: MCP-IP, IP-TIP
 ]
 
 function dist(a: Landmark, b: Landmark): number {
@@ -70,8 +71,9 @@ export function computeTrackingQuality(landmarks: Landmark[]): number {
   }
 
   const meanDeviation = totalDeviation / BONE_SEGMENTS.length
-  // Score: 100 * (1 - deviation), clamped
-  const score = 100 * Math.max(0, Math.min(1, 1 - meanDeviation * 2))
+  // Score: 100 * (1 - deviation), clamped. Multiplier 1.5 (not 2) to avoid
+  // over-penalizing natural jitter — mean deviation of 0.3 still yields ~55%.
+  const score = 100 * Math.max(0, Math.min(1, 1 - meanDeviation * 1.5))
   return Math.round(score * 10) / 10
 }
 
