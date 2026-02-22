@@ -15,6 +15,8 @@ export interface EdgesProps {
   positions: Map<string, NodePosition>
   /** Currently selected node id — edges connected to it will be highlighted */
   selectedId?: string | null
+  /** Secondary selected node id — edges connected to it will also be highlighted */
+  secondarySelectedId?: string | null
 }
 
 /** Default edge color */
@@ -29,21 +31,25 @@ const MAX_OPACITY = 0.8
 export const Edges = React.memo(function Edges({
   edges,
   positions,
-  selectedId
+  selectedId,
+  secondarySelectedId
 }: EdgesProps): React.ReactElement | null {
   const lineRef = useRef<LineSegments>(null)
 
-  // Pre-compute the set of node IDs connected to selected node
+  // Pre-compute the set of edge indices connected to either selected node
   const selectedConnections = useMemo(() => {
-    if (!selectedId) return new Set<number>()
+    if (!selectedId && !secondarySelectedId) return new Set<number>()
     const connected = new Set<number>()
     edges.forEach((edge, i) => {
-      if (edge.source === selectedId || edge.target === selectedId) {
+      if (
+        edge.source === selectedId || edge.target === selectedId ||
+        edge.source === secondarySelectedId || edge.target === secondarySelectedId
+      ) {
         connected.add(i)
       }
     })
     return connected
-  }, [edges, selectedId])
+  }, [edges, selectedId, secondarySelectedId])
 
   // Create buffer geometry for line segments
   // Each edge requires 2 vertices (start + end), each vertex has 3 floats
@@ -59,6 +65,7 @@ export const Edges = React.memo(function Edges({
   /** Track last positions/selection for dirty-flag skip */
   const prevPositionsRef = useRef<Map<string, NodePosition> | null>(null)
   const prevSelectedRef = useRef<string | null | undefined>(null)
+  const prevSecondaryRef = useRef<string | null | undefined>(null)
 
   // Dispose geometry and material on unmount (P0-5)
   useEffect(() => {
@@ -81,9 +88,10 @@ export const Edges = React.memo(function Edges({
     if (!line || edges.length === 0) return
 
     // Dirty-flag: skip GPU upload if positions and selection haven't changed
-    if (positions === prevPositionsRef.current && selectedId === prevSelectedRef.current) return
+    if (positions === prevPositionsRef.current && selectedId === prevSelectedRef.current && secondarySelectedId === prevSecondaryRef.current) return
     prevPositionsRef.current = positions
     prevSelectedRef.current = selectedId
+    prevSecondaryRef.current = secondarySelectedId
 
     const geom = line.geometry
     let anyUpdate = false

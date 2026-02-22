@@ -28,8 +28,10 @@ export interface NodesProps {
   nodes: GraphNode[]
   /** Map of node id -> current position from force layout */
   positions: Map<string, NodePosition>
-  /** Currently selected node id */
+  /** Currently selected node id (left hand / primary) */
   selectedId?: string | null
+  /** Secondary selected node id (right hand) */
+  secondarySelectedId?: string | null
   /** Currently hovered node id */
   hoveredId?: string | null
   /** Callback when a node is clicked */
@@ -45,6 +47,7 @@ const DEFAULT_SIZE = 1.0
 const _dummy = new Object3D()
 const _color = new Color()
 const _selectedColor = new Color('#ff6600')
+const _secondarySelectedColor = new Color('#00aaff')
 const _hoverColor = new Color('#ffffff')
 const _tempColor = new Color()
 
@@ -55,6 +58,7 @@ export const Nodes = React.memo(function Nodes({
   nodes,
   positions,
   selectedId,
+  secondarySelectedId,
   hoveredId,
   onNodeClick,
   onNodeHover
@@ -64,6 +68,7 @@ export const Nodes = React.memo(function Nodes({
   /** Track last positions map reference to skip redundant GPU uploads */
   const prevPositionsRef = useRef<Map<string, NodePosition> | null>(null)
   const prevSelectedRef = useRef<string | null | undefined>(null)
+  const prevSecondaryRef = useRef<string | null | undefined>(null)
   const prevHoveredRef = useRef<string | null | undefined>(null)
 
   // Build an index map: instance index -> node id
@@ -145,10 +150,11 @@ export const Nodes = React.memo(function Nodes({
 
     // Track what changed for dirty-flag skip
     const positionsChanged = positions !== prevPositionsRef.current
-    const selectionChanged = selectedId !== prevSelectedRef.current || hoveredId !== prevHoveredRef.current
+    const selectionChanged = selectedId !== prevSelectedRef.current || secondarySelectedId !== prevSecondaryRef.current || hoveredId !== prevHoveredRef.current
     const lodChanged = lod !== prevLodRef.current
     prevPositionsRef.current = positions
     prevSelectedRef.current = selectedId
+    prevSecondaryRef.current = secondarySelectedId
     prevHoveredRef.current = hoveredId
 
     // Swap geometry when LOD level changes (P1-19)
@@ -187,6 +193,7 @@ export const Nodes = React.memo(function Nodes({
 
       const baseSize = Math.max(0.1, node.size ?? DEFAULT_SIZE)
       const isSelected = node.id === selectedId
+      const isSecondarySelected = node.id === secondarySelectedId
       const isHovered = node.id === hoveredId
       const size = baseSize
 
@@ -195,9 +202,11 @@ export const Nodes = React.memo(function Nodes({
       _dummy.updateMatrix()
       mesh.setMatrixAt(i, _dummy.matrix)
 
-      // Color: bright orange for selected, white tint for hovered (P1-22)
+      // Color: orange for primary, blue for secondary, white tint for hovered
       if (isSelected) {
         _color.copy(_selectedColor)
+      } else if (isSecondarySelected) {
+        _color.copy(_secondarySelectedColor)
       } else if (isHovered) {
         _tempColor.copy(baseColors[i])
         _color.copy(_tempColor.lerp(_hoverColor, 0.4))
@@ -271,8 +280,8 @@ export const Nodes = React.memo(function Nodes({
               userSelect: 'none',
               whiteSpace: 'nowrap',
               fontSize: 11,
-              color: node.id === selectedId ? '#fff' : 'rgba(220,220,220,0.85)',
-              fontWeight: node.id === selectedId ? 'bold' : 'normal',
+              color: node.id === selectedId ? '#ff6600' : node.id === secondarySelectedId ? '#00aaff' : 'rgba(220,220,220,0.85)',
+              fontWeight: (node.id === selectedId || node.id === secondarySelectedId) ? 'bold' : 'normal',
               textShadow: '0 0 4px rgba(0,0,0,0.8)'
             }}
           >

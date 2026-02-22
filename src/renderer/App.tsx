@@ -38,9 +38,11 @@ export function App(): React.ReactElement {
   // full-tree re-renders when any unrelated slice changes.
   const viewMode = useVisualStore((s) => s.viewMode)
   const selectedNodeId = useVisualStore((s) => s.selectedNodeId)
+  const secondarySelectedNodeId = useVisualStore((s) => s.secondarySelectedNodeId)
   const hoveredNodeId = useVisualStore((s) => s.hoveredNodeId)
   const selectedClusterId = useVisualStore((s) => s.selectedClusterId)
   const selectNode = useVisualStore((s) => s.selectNode)
+  const selectSecondaryNode = useVisualStore((s) => s.selectSecondaryNode)
   const hoverNode = useVisualStore((s) => s.hoverNode)
   const selectCluster = useVisualStore((s) => s.selectCluster)
   const setViewMode = useVisualStore((s) => s.setViewMode)
@@ -209,22 +211,20 @@ export function App(): React.ReactElement {
             if (current === target) {
               // Deselect if same node
               perHandSelectionRef.current[hand] = null
-              // Only clear global if no hand holds it
-              if (perHandSelectionRef.current.left !== target && perHandSelectionRef.current.right !== target) {
-                selectNode(null)
-              }
             } else {
               perHandSelectionRef.current[hand] = target
-              selectNode(target)
             }
+            // Sync per-hand refs to store: left → primary, right → secondary
+            selectNode(perHandSelectionRef.current.left)
+            selectSecondaryNode(perHandSelectionRef.current.right)
           }
           break
         }
         case 'deselect':
           perHandSelectionRef.current[hand] = null
-          // Only clear global if neither hand has a selection
+          selectNode(perHandSelectionRef.current.left)
+          selectSecondaryNode(perHandSelectionRef.current.right)
           if (!perHandSelectionRef.current.left && !perHandSelectionRef.current.right) {
-            selectNode(null)
             selectCluster(null)
           }
           break
@@ -570,6 +570,7 @@ export function App(): React.ReactElement {
             <ForceGraph
               data={graphData}
               selectedNodeId={selectedNodeId}
+              secondarySelectedNodeId={secondarySelectedNodeId}
               gesturePositions={memoGesturePositions}
               dragPositions={memoDragPositions}
               onNodeClick={selectNode}
