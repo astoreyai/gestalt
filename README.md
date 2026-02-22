@@ -20,7 +20,7 @@ The name comes from the German word for "form" or "shape" — fitting for an app
 ## Quick Start
 
 ```bash
-git clone https://github.com/astoreyai/tracking.git
+git clone https://github.com/astoreyai/gestalt.git
 cd gestalt
 npm install
 npm run native:build   # Compile the uinput addon (Linux only)
@@ -144,7 +144,7 @@ sudo chmod 0660 /dev/uinput
 ## Installation
 
 ```bash
-git clone https://github.com/astoreyai/tracking.git
+git clone https://github.com/astoreyai/gestalt.git
 cd gestalt
 npm install
 npm run native:build

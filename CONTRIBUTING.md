@@ -5,7 +5,7 @@ Thanks for your interest in contributing! This document covers the essentials fo
 ## Setup
 
 ```bash
-git clone https://github.com/astoreyai/tracking.git
+git clone https://github.com/astoreyai/gestalt.git
 cd gestalt
 npm install
 npm run native:build   # Compile the C++ uinput addon (Linux required)
