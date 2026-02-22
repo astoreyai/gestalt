@@ -398,6 +398,13 @@ export function App(): React.ReactElement {
       dispatchCtx.selection = handSelectedId ? { kind: 'node', id: handSelectedId } : null
       const action: SceneAction = dispatchGesture(event, dispatchCtx)
 
+      // Debug: log dispatched actions (throttled to avoid console flood)
+      if (action.type !== 'noop' && action.type !== 'navigate') {
+        console.log(`[gesture] ${hand} ${event.type}/${GesturePhase[event.phase]} → ${action.type}`, {
+          hoveredNodeId, lastHovered: lastHoveredRef.current[hand], handPos: event.position
+        })
+      }
+
       if (action.type === 'noop') {
         if (hand === 'left') {
           if (hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }

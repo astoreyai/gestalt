@@ -167,11 +167,11 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     // Gesture-based hover: brute-force ray-distance check over all nodes.
     // For graphs up to ~10K nodes this is <1ms per frame — simpler and more
     // reliable than the spatial-hash approach which was mis-projecting rays.
+    // NOTE: We intentionally do NOT clear hover when gesturePositions becomes
+    // empty — the last hovered node must persist so Pinch can select it after
+    // Point releases (there's always a gap frame between Point→Pinch).
     useEffect(() => {
-      if (!gesturePositions || gesturePositions.length === 0) {
-        handleNodeHover(null)
-        return
-      }
+      if (!gesturePositions || gesturePositions.length === 0) return
       const pos = positionsRef.current
       if (pos.size === 0) return
 
@@ -202,6 +202,10 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       if (closestId && closestDist < hoverThreshold) {
         handleNodeHover(closestId)
       } else {
+        // Debug: log near misses to diagnose threshold issues
+        if (closestId && closestDist < hoverThreshold * 3) {
+          console.log(`[hover] near miss: ${closestId} dist=${closestDist.toFixed(2)} threshold=${hoverThreshold.toFixed(2)}`)
+        }
         handleNodeHover(null)
       }
     }, [gesturePositions, camera, handleNodeHover])
