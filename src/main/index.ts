@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
 import { join } from 'path'
-import { readFile, stat } from 'fs/promises'
+import { readFile, stat, readdir } from 'fs/promises'
 import { IPC } from '@shared/ipc-channels'
 import type { AppConfig, CalibrationProfile, GestureEvent, LandmarkFrame } from '@shared/protocol'
 import { initPersistence, getPersistence } from './persistence'
@@ -334,6 +334,76 @@ function setupIpcHandlers(): void {
 
   ipcMain.on(IPC.WINDOW_CLOSE, () => {
     mainWindow?.close()
+  })
+
+  // ─── Data Pipeline ─────────────────────────────────────────
+  ipcMain.handle(IPC.PIPELINE_SCAN_DIRECTORY, async (_event, dirPath: string) => {
+    if (typeof dirPath !== 'string' || !isAllowedPath(dirPath)) {
+      throw new Error('Access denied: path outside allowed directories')
+    }
+    const MAX_DEPTH = 5
+    const MAX_ENTRIES = 5000
+    let count = 0
+
+    interface DirEntry {
+      name: string
+      path: string
+      isDirectory: boolean
+      size: number
+      children?: DirEntry[]
+    }
+
+    async function scanDir(p: string, depth: number): Promise<DirEntry> {
+      const info = await stat(p)
+      const entry: DirEntry = {
+        name: p.split('/').pop() ?? p,
+        path: p,
+        isDirectory: info.isDirectory(),
+        size: info.size
+      }
+      count++
+      if (count > MAX_ENTRIES) return entry
+      if (info.isDirectory() && depth < MAX_DEPTH) {
+        const children = await readdir(p, { withFileTypes: true })
+        entry.children = []
+        for (const child of children) {
+          if (count > MAX_ENTRIES) break
+          if (child.name.startsWith('.')) continue // skip hidden
+          const childPath = join(p, child.name)
+          entry.children.push(await scanDir(childPath, depth + 1))
+        }
+      }
+      return entry
+    }
+
+    return await scanDir(dirPath, 0)
+  })
+
+  ipcMain.handle(IPC.PIPELINE_READ_IMAGE, async (_event, imagePath: string) => {
+    if (typeof imagePath !== 'string' || !isAllowedPath(imagePath)) {
+      throw new Error('Access denied: path outside allowed directories')
+    }
+    const info = await stat(imagePath)
+    if (info.size > 20 * 1024 * 1024) {
+      throw new Error('Image too large (max 20MB)')
+    }
+    const buffer = await readFile(imagePath)
+    const ext = imagePath.toLowerCase().split('.').pop() ?? 'png'
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'gif' ? 'image/gif' : 'image/png'
+    return `data:${mime};base64,${buffer.toString('base64')}`
+  })
+
+  ipcMain.handle(IPC.PIPELINE_GENERATE_THUMBNAIL, async (_event, imagePath: string, size: number = 128) => {
+    if (typeof imagePath !== 'string' || !isAllowedPath(imagePath)) {
+      throw new Error('Access denied: path outside allowed directories')
+    }
+    const thumbSize = Math.max(16, Math.min(512, size))
+    const img = nativeImage.createFromPath(imagePath)
+    if (img.isEmpty()) {
+      throw new Error('Failed to read image')
+    }
+    const resized = img.resize({ width: thumbSize, height: thumbSize })
+    return `data:image/png;base64,${resized.toPNG().toString('base64')}`
   })
 }
 

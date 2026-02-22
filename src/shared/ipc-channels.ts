@@ -63,6 +63,11 @@ export const IPC = {
   APP_READY: 'app:ready',
   APP_QUIT: 'app:quit',
 
+  // Data pipeline
+  PIPELINE_SCAN_DIRECTORY: 'pipeline:scan-directory',
+  PIPELINE_READ_IMAGE: 'pipeline:read-image',
+  PIPELINE_GENERATE_THUMBNAIL: 'pipeline:generate-thumbnail',
+
   // Echo test (dev)
   ECHO: 'dev:echo'
 } as const

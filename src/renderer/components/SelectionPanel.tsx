@@ -7,8 +7,7 @@
 import React from 'react'
 import { A11Y_COLORS } from '../controller/a11y'
 import { sanitizeDisplayValue, sanitizeMetadata } from '../controller/sanitize'
-import type { SelectedNodeInfo } from '../controller/selection-info'
-import type { SelectedPointInfo } from '../controller/selection-info'
+import type { SelectedNodeInfo, SelectedPointInfo, SelectionInfo } from '../controller/selection-info'
 
 /** Shared button style (matches App.tsx buttonStyle) */
 const buttonStyle: React.CSSProperties = {
@@ -36,14 +35,41 @@ const panelStyle: React.CSSProperties = {
 export interface SelectionPanelProps {
   selectedNodeInfo: SelectedNodeInfo | null
   selectedPointInfo: SelectedPointInfo | null
+  /** Unified selection info (preferred over individual node/point info) */
+  selectionInfo?: SelectionInfo
   onDeselect: () => void
 }
 
 export function SelectionPanel({
   selectedNodeInfo,
   selectedPointInfo,
+  selectionInfo,
   onDeselect
 }: SelectionPanelProps): React.ReactElement | null {
+  // Unified path: render cluster info
+  if (selectionInfo?.kind === 'cluster') {
+    return (
+      <div style={panelStyle}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: 14 }}>
+          {sanitizeDisplayValue(selectionInfo.info.label ?? `Cluster ${selectionInfo.info.id}`)}
+        </h4>
+        {selectionInfo.info.color && (
+          <div style={{ fontSize: 12, color: A11Y_COLORS.textSecondary, marginBottom: 8 }}>
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: selectionInfo.info.color, marginRight: 6, verticalAlign: 'middle' }} />
+            Cluster
+          </div>
+        )}
+        <button
+          onClick={onDeselect}
+          style={{ ...buttonStyle, padding: '4px 10px', fontSize: 11 }}
+          aria-label="Deselect cluster"
+        >
+          Deselect
+        </button>
+      </div>
+    )
+  }
+
   // Graph node selection
   if (selectedNodeInfo) {
     const sanitizedMeta = sanitizeMetadata(selectedNodeInfo.metadata)

@@ -30,7 +30,7 @@ export interface StereoConfig {
    * Default: 1.0
    */
   focalLength: number
-  /** Minimum disparity to avoid division by zero. Default: 0.005 */
+  /** Minimum disparity to avoid division by zero. Default: 0.01 */
   minDisparity: number
   /** Maximum plausible stereo depth in meters. Default: 5.0 */
   maxDepth: number
@@ -42,7 +42,7 @@ export const DEFAULT_STEREO_CONFIG: StereoConfig = {
   baselineDistance: 0.065,
   convergenceAngle: 0,
   focalLength: 1.0,
-  minDisparity: 0.005,
+  minDisparity: 0.01,
   maxDepth: 5.0,
   minDepth: 0.1
 }
@@ -138,7 +138,11 @@ function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
 
     // Outlier rejection: if stereo depth is outside plausible range, fall back to monocular z
     const stereoValid = stereoZ >= cfg.minDepth && stereoZ <= cfg.maxDepth
-    const disparityConfidence = stereoValid ? Math.min(disparity / 0.05, 1.0) : 0
+    // Disparity confidence threshold derived from stereo geometry:
+    // At maxDepth, expected disparity = baseline*focalLength/maxDepth
+    // Confidence ramps from 0 at this minimum up to 1 at larger disparities
+    const minExpectedDisparity = (cfg.baselineDistance * cfg.focalLength) / cfg.maxDepth
+    const disparityConfidence = stereoValid ? Math.min(disparity / (minExpectedDisparity * 3), 1.0) : 0
     const fusedZ = disparityConfidence * stereoZ + (1 - disparityConfidence) * avgOriginalZ
 
     const out = fusedLandmarks[i]

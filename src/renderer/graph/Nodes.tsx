@@ -2,7 +2,7 @@
  * Nodes component — renders graph nodes using THREE.InstancedMesh for performance.
  * Handles 10K+ nodes at 60 FPS by batching all nodes into a single draw call.
  */
-import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react'
+import React, { useRef, useMemo, useEffect, useCallback } from 'react'
 import { useFrame, ThreeEvent } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import {
@@ -191,14 +191,12 @@ export const Nodes = React.memo(function Nodes({
       const pos = positions.get(node.id)
       if (!pos) continue
 
-      const baseSize = Math.max(0.1, node.size ?? DEFAULT_SIZE)
       const isSelected = node.id === selectedId
       const isSecondarySelected = node.id === secondarySelectedId
       const isHovered = node.id === hoveredId
-      const size = baseSize
 
       _dummy.position.set(pos.x, pos.y, pos.z)
-      _dummy.scale.setScalar(size)
+      _dummy.scale.setScalar(Math.max(0.1, node.size ?? DEFAULT_SIZE))
       _dummy.updateMatrix()
       mesh.setMatrixAt(i, _dummy.matrix)
 
@@ -208,8 +206,7 @@ export const Nodes = React.memo(function Nodes({
       } else if (isSecondarySelected) {
         _color.copy(_secondarySelectedColor)
       } else if (isHovered) {
-        _tempColor.copy(baseColors[i])
-        _color.copy(_tempColor.lerp(_hoverColor, 0.4))
+        _color.copy(baseColors[i]).lerp(_hoverColor, 0.4)
       } else {
         _color.copy(baseColors[i])
       }

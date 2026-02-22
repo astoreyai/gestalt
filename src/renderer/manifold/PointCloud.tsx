@@ -199,10 +199,17 @@ export function PointCloud({
     if (needsSizeUpdate) sizeAttr.needsUpdate = true
   })
 
-  // Raycasting for hover and click
+  // Raycasting for hover and click — throttled to ~30fps to avoid expensive vertex tests
+  const lastRaycastRef = useRef(0)
+  const RAYCAST_THROTTLE_MS = 33
+
   const handlePointerMove = useCallback(
     (_event: ThreeEvent<PointerEvent>) => {
       if (!pointsRef.current || !onPointHover || !raycasterRef.current) return
+
+      const now = performance.now()
+      if (now - lastRaycastRef.current < RAYCAST_THROTTLE_MS) return
+      lastRaycastRef.current = now
 
       raycasterRef.current.setFromCamera(pointer, camera)
 

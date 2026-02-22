@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand'
-import type { GestureEvent, ViewMode, GraphData, EmbeddingData, AppConfig, GestureType } from '@shared/protocol'
+import type { GestureEvent, ViewMode, GraphData, EmbeddingData, AppConfig, GestureType, SelectableObject } from '@shared/protocol'
 import { DEFAULT_CONFIG } from '@shared/protocol'
 
 // ─── Toast Types ─────────────────────────────────────────────────
@@ -32,10 +32,27 @@ export type ModalId = 'settings' | 'dataLoader' | 'calibration' | null
 export interface VisualState {
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
+
+  // ─── Unified selection model ──────────────────────────────
+  /** Primary selection (any object type) */
+  selection: SelectableObject | null
+  /** Secondary selection for two-hand interaction */
+  secondarySelection: SelectableObject | null
+  /** Currently hovered object */
+  hoveredObject: SelectableObject | null
+  /** Select any object (or null to deselect) */
+  select: (obj: SelectableObject | null) => void
+  /** Select secondary object */
+  selectSecondary: (obj: SelectableObject | null) => void
+  /** Hover any object (or null to unhover) */
+  hover: (obj: SelectableObject | null) => void
+
+  // ─── Convenience aliases (backward compat) ────────────────
+  /** @deprecated Use selection?.kind === 'node' ? selection.id : null */
   selectedNodeId: string | null
-  /** Secondary selection for two-hand interaction (left hand = primary, right hand = secondary) */
   secondarySelectedNodeId: string | null
   hoveredNodeId: string | null
+  /** @deprecated Use selection?.kind === 'cluster' ? selection.id : null */
   selectedClusterId: number | null
   selectNode: (id: string | null) => void
   selectSecondaryNode: (id: string | null) => void
@@ -79,17 +96,64 @@ export interface UIState {
 
 // ─── Visual State ─────────────────────────────────────────
 
+/** Extract string id from a selectable object (nodes, points share string ids) */
+function objectStringId(obj: SelectableObject | null): string | null {
+  if (!obj) return null
+  if (obj.kind === 'cluster') return null
+  return obj.id
+}
+
+/** Extract cluster id from a selectable object */
+function objectClusterId(obj: SelectableObject | null): number | null {
+  if (!obj || obj.kind !== 'cluster') return null
+  return obj.id
+}
+
 export const useVisualStore = create<VisualState>((set) => ({
   viewMode: 'graph',
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  // Unified selection
+  selection: null,
+  secondarySelection: null,
+  hoveredObject: null,
+  select: (obj) => set({
+    selection: obj,
+    selectedNodeId: objectStringId(obj),
+    selectedClusterId: objectClusterId(obj),
+  }),
+  selectSecondary: (obj) => set({
+    secondarySelection: obj,
+    secondarySelectedNodeId: objectStringId(obj),
+  }),
+  hover: (obj) => set({
+    hoveredObject: obj,
+    hoveredNodeId: objectStringId(obj),
+  }),
+
+  // Backward-compat aliases (kept in sync by select/selectSecondary/hover)
   selectedNodeId: null,
   secondarySelectedNodeId: null,
   hoveredNodeId: null,
   selectedClusterId: null,
-  selectNode: (id) => set({ selectedNodeId: id }),
-  selectSecondaryNode: (id) => set({ secondarySelectedNodeId: id }),
-  hoverNode: (id) => set({ hoveredNodeId: id }),
-  selectCluster: (id) => set({ selectedClusterId: id }),
+  selectNode: (id) => set({
+    selection: id ? { kind: 'node', id } : null,
+    selectedNodeId: id,
+    selectedClusterId: null,
+  }),
+  selectSecondaryNode: (id) => set({
+    secondarySelection: id ? { kind: 'node', id } : null,
+    secondarySelectedNodeId: id,
+  }),
+  hoverNode: (id) => set({
+    hoveredObject: id ? { kind: 'node', id } : null,
+    hoveredNodeId: id,
+  }),
+  selectCluster: (id) => set({
+    selection: id != null ? { kind: 'cluster', id } : null,
+    selectedClusterId: id,
+    selectedNodeId: null,
+  }),
 }))
 
 // ─── Data State ───────────────────────────────────────────
@@ -197,7 +261,15 @@ export interface AppState {
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
 
-  // Selection state
+  // Unified selection
+  selection: SelectableObject | null
+  secondarySelection: SelectableObject | null
+  hoveredObject: SelectableObject | null
+  select: (obj: SelectableObject | null) => void
+  selectSecondary: (obj: SelectableObject | null) => void
+  hover: (obj: SelectableObject | null) => void
+
+  // Selection state (backward compat)
   selectedNodeId: string | null
   secondarySelectedNodeId: string | null
   hoveredNodeId: string | null
@@ -311,6 +383,7 @@ useAppStore.getState = (): AppState => {
 useAppStore.setState = (partial: Partial<AppState>): void => {
   const {
     viewMode, selectedNodeId, secondarySelectedNodeId, hoveredNodeId, selectedClusterId,
+    selection, secondarySelection, hoveredObject,
     graphData, embeddingData,
     activeGesture, lastGestureType, trackingEnabled,
     config, calibrated,
@@ -321,10 +394,14 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
   // Visual state
   const visualPartial: Partial<VisualState> = {}
   if (viewMode !== undefined) visualPartial.viewMode = viewMode
-  if (selectedNodeId !== undefined) visualPartial.selectedNodeId = selectedNodeId
-  if (secondarySelectedNodeId !== undefined) visualPartial.secondarySelectedNodeId = secondarySelectedNodeId
-  if (hoveredNodeId !== undefined) visualPartial.hoveredNodeId = hoveredNodeId
-  if (selectedClusterId !== undefined) visualPartial.selectedClusterId = selectedClusterId
+  if (selection !== undefined) { visualPartial.selection = selection; visualPartial.selectedNodeId = objectStringId(selection ?? null); visualPartial.selectedClusterId = objectClusterId(selection ?? null) }
+  if (secondarySelection !== undefined) { visualPartial.secondarySelection = secondarySelection; visualPartial.secondarySelectedNodeId = objectStringId(secondarySelection ?? null) }
+  if (hoveredObject !== undefined) { visualPartial.hoveredObject = hoveredObject; visualPartial.hoveredNodeId = objectStringId(hoveredObject ?? null) }
+  // Backward-compat: direct field sets still work
+  if (selectedNodeId !== undefined && selection === undefined) visualPartial.selectedNodeId = selectedNodeId
+  if (secondarySelectedNodeId !== undefined && secondarySelection === undefined) visualPartial.secondarySelectedNodeId = secondarySelectedNodeId
+  if (hoveredNodeId !== undefined && hoveredObject === undefined) visualPartial.hoveredNodeId = hoveredNodeId
+  if (selectedClusterId !== undefined && selection === undefined) visualPartial.selectedClusterId = selectedClusterId
   if (Object.keys(visualPartial).length > 0) useVisualStore.setState(visualPartial)
 
   // Data state

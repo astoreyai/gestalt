@@ -19,18 +19,26 @@ import { PointCloud } from './manifold/PointCloud'
 import { Clusters } from './manifold/Clusters'
 import { HoverCard } from './manifold/HoverCard'
 import { calculateClusterCentroids } from './manifold/navigation'
+import { AxisLabels } from './manifold/AxisLabels'
+import { ClusterLegend, type ClusterInfo } from './manifold/ClusterLegend'
+import { computeDataBounds } from './manifold/axis-helpers'
 import { A11Y_COLORS } from './controller/a11y'
-import { getSelectedNodeInfo, getSelectedPointInfo } from './controller/selection-info'
+import { getSelectedNodeInfo, getSelectedPointInfo, resolveSelectionInfo } from './controller/selection-info'
 import { HUD } from './components/HUD'
 import { ToastQueue } from './components/ToastQueue'
 import { ModalContainer } from './components/ModalContainer'
 import { SelectionPanel } from './components/SelectionPanel'
 import { HandChordOverlay } from './components/HandChordOverlay'
+import { GestureGuide } from './components/GestureGuide'
+import { UndoStack } from './controller/undo'
 import { useHandTracker } from './hooks/useHandTracker'
 import { validateData } from './data/validators'
 import { dispatchGesture } from './controller/dispatcher'
-import type { SceneAction } from './controller/dispatcher'
+import type { SceneAction, DispatchContext } from './controller/dispatcher'
 import { GestureEngine } from './gestures/state'
+import { HandMotionTracker } from './tracker/motion'
+import type { HandMotionMetrics } from './tracker/motion'
+import { TrackingQualityTracker } from './tracker/quality'
 import type { GraphData, EmbeddingData, CalibrationProfile, GestureEvent } from '@shared/protocol'
 import { GesturePhase } from '@shared/protocol'
 
@@ -46,6 +54,8 @@ export function App(): React.ReactElement {
   const selectSecondaryNode = useVisualStore((s) => s.selectSecondaryNode)
   const hoverNode = useVisualStore((s) => s.hoverNode)
   const selectCluster = useVisualStore((s) => s.selectCluster)
+  const selection = useVisualStore((s) => s.selection)
+  const select = useVisualStore((s) => s.select)
   const setViewMode = useVisualStore((s) => s.setViewMode)
 
   const graphData = useDataStore((s) => s.graphData)
@@ -59,7 +69,6 @@ export function App(): React.ReactElement {
 
   const config = useConfigStore((s) => s.config)
   const updateConfig = useConfigStore((s) => s.updateConfig)
-  const calibrated = useConfigStore((s) => s.calibrated)
   const setCalibrated = useConfigStore((s) => s.setCalibrated)
 
   const setError = useUIStore((s) => s.setError)
@@ -90,6 +99,12 @@ export function App(): React.ReactElement {
 
   const orbitRef = useRef<OrbitControlsImpl>(null)
   const gestureEngineRef = useRef<GestureEngine | null>(null)
+  const motionTrackerRef = useRef<HandMotionTracker | null>(null)
+  const qualityTrackerRef = useRef<TrackingQualityTracker | null>(null)
+  const undoStackRef = useRef(new UndoStack(20))
+  const [motionMetrics, setMotionMetrics] = useState<HandMotionMetrics[]>([])
+  const [trackingQuality, setTrackingQuality] = useState<number>(0)
+  const [gestureGuideVisible, setGestureGuideVisible] = useState(false)
 
   // Per-hand tracking state (refs to avoid re-render thrashing)
   const prevHandPosRef = useRef<{ left: { x: number; y: number } | null; right: { x: number; y: number } | null }>({ left: null, right: null })
@@ -116,6 +131,12 @@ export function App(): React.ReactElement {
       cooldownDuration: config.gestures.cooldownDuration,
       sensitivity: config.gestures.sensitivity
     })
+  }
+  if (!motionTrackerRef.current) {
+    motionTrackerRef.current = new HandMotionTracker(config.tracking.smoothingFactor)
+  }
+  if (!qualityTrackerRef.current) {
+    qualityTrackerRef.current = new TrackingQualityTracker(10)
   }
 
   // Hand tracking via hook — graceful degradation on failure
@@ -148,6 +169,21 @@ export function App(): React.ReactElement {
     const engine = gestureEngineRef.current
     if (!engine) return
 
+    // Update motion and quality trackers (use refs directly to avoid per-frame state churn)
+    if (motionTrackerRef.current) {
+      const metrics = motionTrackerRef.current.update(landmarkFrame)
+      if (metrics.length > 0) setMotionMetrics(metrics)
+    }
+    if (qualityTrackerRef.current && landmarkFrame.hands.length > 0) {
+      let totalQ = 0
+      for (const hand of landmarkFrame.hands) {
+        totalQ += qualityTrackerRef.current.update(hand.landmarks)
+      }
+      const newQ = totalQ / landmarkFrame.hands.length
+      // Only update state if quality changed meaningfully (avoid re-renders)
+      setTrackingQuality(prev => Math.abs(prev - newQ) > 2 ? newQ : prev)
+    }
+
     const events = engine.processFrame(landmarkFrame)
 
     // In overlay mode, forward all events to main process for native input
@@ -161,55 +197,69 @@ export function App(): React.ReactElement {
       return
     }
 
-    // Split events by hand and pick the best event per hand
-    const leftEvents = events.filter(ev => ev.hand === 'left')
-    const rightEvents = events.filter(ev => ev.hand === 'right')
-
-    const pickBest = (evs: GestureEvent[]): GestureEvent | null => {
-      let best: GestureEvent | null = null
-      let bestScore = -1
-      for (const ev of evs) {
-        const phaseScore = ev.phase === GesturePhase.Onset ? 2 : ev.phase === GesturePhase.Hold ? 1 : 0
-        const score = phaseScore + ev.confidence
-        if (score > bestScore) {
-          bestScore = score
-          best = ev
-        }
+    // Pick the best event per hand in a single pass (zero allocation)
+    let bestLeft: GestureEvent | null = null
+    let bestRight: GestureEvent | null = null
+    let bestLeftScore = -1
+    let bestRightScore = -1
+    for (const ev of events) {
+      const phaseScore = ev.phase === GesturePhase.Onset ? 2 : ev.phase === GesturePhase.Hold ? 1 : 0
+      const score = phaseScore + ev.confidence
+      if (ev.hand === 'left') {
+        if (score > bestLeftScore) { bestLeftScore = score; bestLeft = ev }
+      } else {
+        if (score > bestRightScore) { bestRightScore = score; bestRight = ev }
       }
-      return best
     }
-
-    const bestLeft = pickBest(leftEvents)
-    const bestRight = pickBest(rightEvents)
 
     // Push most significant event into store for GestureOverlay
     setActiveGesture(bestLeft ?? bestRight)
 
-    // Per-hand action processing
-    const newHover = { ...gestureHoverPos }
-    const newDrag = { ...dragPositions }
+    // Per-hand action processing — reuse mutable objects instead of per-frame spreads
+    const newHoverLeft = gestureHoverPos.left
+    const newHoverRight = gestureHoverPos.right
+    const newDragLeft = dragPositions.left
+    const newDragRight = dragPositions.right
+    let hoverLeftOut = newHoverLeft
+    let hoverRightOut = newHoverRight
+    let dragLeftOut = newDragLeft
+    let dragRightOut = newDragRight
     let hoverChanged = false
     let dragChanged = false
+
+    // Pre-allocated dispatch context (reused per hand)
+    const dispatchCtx: DispatchContext = {
+      viewMode,
+      selection: null,
+      selectedNodeId: null,
+      selectedClusterId,
+      oneHandedMode: config.gestures.oneHandedMode
+    }
 
     const processHand = (event: GestureEvent | null, hand: 'left' | 'right'): void => {
       if (!event) {
         prevHandPosRef.current[hand] = null
-        if (newHover[hand] !== null) { newHover[hand] = null; hoverChanged = true }
-        if (newDrag[hand] !== null) { newDrag[hand] = null; dragChanged = true }
+        if (hand === 'left' && hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
+        if (hand === 'right' && hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
+        if (hand === 'left' && dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
+        if (hand === 'right' && dragRightOut !== null) { dragRightOut = null; dragChanged = true }
         return
       }
 
-      // Dispatch with per-hand selected node
-      const action: SceneAction = dispatchGesture(event, {
-        viewMode,
-        selectedNodeId: perHandSelectionRef.current[hand],
-        selectedClusterId,
-        oneHandedMode: config.gestures.oneHandedMode
-      })
+      // Dispatch with per-hand selected node (reuse context object)
+      const handSelectedId = perHandSelectionRef.current[hand]
+      dispatchCtx.selectedNodeId = handSelectedId
+      dispatchCtx.selection = handSelectedId ? { kind: 'node', id: handSelectedId } : null
+      const action: SceneAction = dispatchGesture(event, dispatchCtx)
 
       if (action.type === 'noop') {
-        if (newHover[hand] !== null) { newHover[hand] = null; hoverChanged = true }
-        if (newDrag[hand] !== null) { newDrag[hand] = null; dragChanged = true }
+        if (hand === 'left') {
+          if (hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
+          if (dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
+        } else {
+          if (hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
+          if (dragRightOut !== null) { dragRightOut = null; dragChanged = true }
+        }
         prevHandPosRef.current[hand] = { x: event.position.x, y: event.position.y }
         return
       }
@@ -222,19 +272,27 @@ export function App(): React.ReactElement {
           const target = hoveredNodeId ?? lastHoveredRef.current[hand]
           if (target) {
             const current = perHandSelectionRef.current[hand]
+            // Record undo before mutating
+            if (current) {
+              undoStackRef.current.push('select', { type: 'select', target: { kind: 'node', id: current } })
+            } else {
+              undoStackRef.current.push('select', { type: 'deselect' })
+            }
             if (current === target) {
-              // Deselect if same node
               perHandSelectionRef.current[hand] = null
             } else {
               perHandSelectionRef.current[hand] = target
             }
-            // Sync per-hand refs to store: left → primary, right → secondary
             selectNode(perHandSelectionRef.current.left)
             selectSecondaryNode(perHandSelectionRef.current.right)
           }
           break
         }
-        case 'deselect':
+        case 'deselect': {
+          const prev = perHandSelectionRef.current[hand]
+          if (prev) {
+            undoStackRef.current.push('deselect', { type: 'select', target: { kind: 'node', id: prev } })
+          }
           perHandSelectionRef.current[hand] = null
           selectNode(perHandSelectionRef.current.left)
           selectSecondaryNode(perHandSelectionRef.current.right)
@@ -242,9 +300,12 @@ export function App(): React.ReactElement {
             selectCluster(null)
           }
           break
+        }
         case 'rotate': {
           if (!controls) break
-          const angle = (action.params.angle as number) * 0.05
+          const rotAngle = action.params.angle as number
+          undoStackRef.current.push('rotate', { type: 'rotate', params: { angle: -rotAngle, axis: 'y' } })
+          const angle = rotAngle * 0.05
           controls.autoRotate = false
           const rt = controls.target
           const cam = controls.object
@@ -274,7 +335,9 @@ export function App(): React.ReactElement {
         }
         case 'zoom': {
           if (!controls) break
-          const delta = (action.params.delta as number) * 0.5
+          const zoomDelta = action.params.delta as number
+          undoStackRef.current.push('zoom', { type: 'zoom', params: { delta: -zoomDelta } })
+          const delta = zoomDelta * 0.5
           const camera = controls.object
           const direction = controls.target.clone().sub(camera.position).normalize()
           camera.position.addScaledVector(direction, delta)
@@ -284,26 +347,28 @@ export function App(): React.ReactElement {
         case 'drag': {
           const nodeId = perHandSelectionRef.current[hand]
           if (nodeId) {
-            newDrag[hand] = { nodeId, x: handPos.x, y: handPos.y }
+            if (hand === 'left') { dragLeftOut = { nodeId, x: handPos.x, y: handPos.y } }
+            else { dragRightOut = { nodeId, x: handPos.x, y: handPos.y } }
             dragChanged = true
           }
           break
         }
         case 'navigate': {
-          newHover[hand] = { x: handPos.x, y: handPos.y }
+          if (hand === 'left') { hoverLeftOut = { x: handPos.x, y: handPos.y } }
+          else { hoverRightOut = { x: handPos.x, y: handPos.y } }
           hoverChanged = true
           break
         }
       }
 
       // Clear hover/drag for non-matching actions
-      if (action.type !== 'navigate' && newHover[hand] !== null) {
-        newHover[hand] = null
-        hoverChanged = true
+      if (action.type !== 'navigate') {
+        if (hand === 'left' && hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
+        if (hand === 'right' && hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
       }
-      if (action.type !== 'drag' && newDrag[hand] !== null) {
-        newDrag[hand] = null
-        dragChanged = true
+      if (action.type !== 'drag') {
+        if (hand === 'left' && dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
+        if (hand === 'right' && dragRightOut !== null) { dragRightOut = null; dragChanged = true }
       }
 
       prevHandPosRef.current[hand] = { x: handPos.x, y: handPos.y }
@@ -313,8 +378,8 @@ export function App(): React.ReactElement {
     processHand(bestRight, 'right')
 
     // Batch state updates
-    if (hoverChanged) setGestureHoverPos(newHover)
-    if (dragChanged) setDragPositions(newDrag)
+    if (hoverChanged) setGestureHoverPos({ left: hoverLeftOut, right: hoverRightOut })
+    if (dragChanged) setDragPositions({ left: dragLeftOut, right: dragRightOut })
   }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData, overlayMode])
 
   // Update gesture engine config when settings change
@@ -409,6 +474,29 @@ export function App(): React.ReactElement {
   // Cluster info computed from embedding data
   const clusterInfos = embeddingData ? calculateClusterCentroids(embeddingData) : []
 
+  // Bounds for axis labels (manifold view)
+  const embeddingBounds = useMemo(() => {
+    if (!embeddingData) return null
+    return computeDataBounds(embeddingData.points)
+  }, [embeddingData])
+
+  // Cluster legend data
+  const clusterLegendData = useMemo((): ClusterInfo[] => {
+    if (!embeddingData?.clusters) return []
+    const countMap = new Map<number, number>()
+    for (const p of embeddingData.points) {
+      if (p.clusterId != null) {
+        countMap.set(p.clusterId, (countMap.get(p.clusterId) ?? 0) + 1)
+      }
+    }
+    return embeddingData.clusters.map(c => ({
+      id: c.id,
+      label: c.label,
+      color: c.color ?? '#888',
+      count: countMap.get(c.id) ?? 0
+    }))
+  }, [embeddingData])
+
   // Hovered embedding point
   const [hoveredPoint, setHoveredPoint] = useState<EmbeddingData['points'][0] | null>(null)
 
@@ -428,6 +516,12 @@ export function App(): React.ReactElement {
     return null
   }, [selectedNodeId, embeddingData])
 
+  // Unified selection info (resolves any SelectableObject)
+  const selectionInfo = useMemo(() =>
+    resolveSelectionInfo(selection, graphData, embeddingData),
+    [selection, graphData, embeddingData]
+  )
+
   // Track window size
   useEffect(() => {
     const handleResize = (): void => setWindowSize({
@@ -442,16 +536,115 @@ export function App(): React.ReactElement {
   // No calibration popup on boot — default profile is seeded automatically.
   // Users can open calibration from Settings > Tracking or HUD profile dropdown.
 
-  // Escape key dismisses active modal
+  // Undo handler
+  const performUndo = useCallback(() => {
+    const entry = undoStackRef.current.pop()
+    if (!entry) return
+    const inv = entry.inverse
+    switch (inv.type) {
+      case 'deselect':
+        if (inv.target?.kind === 'cluster') {
+          selectCluster(null)
+        } else {
+          selectNode(null)
+          selectSecondaryNode(null)
+          perHandSelectionRef.current.left = null
+          perHandSelectionRef.current.right = null
+        }
+        break
+      case 'select':
+        switch (inv.target.kind) {
+          case 'node':
+          case 'point':
+            selectNode(inv.target.id)
+            break
+          case 'cluster':
+            selectCluster(inv.target.id)
+            break
+        }
+        break
+      case 'zoom':
+        if (orbitRef.current) {
+          const cam = orbitRef.current.object
+          const dir = orbitRef.current.target.clone().sub(cam.position).normalize()
+          cam.position.addScaledVector(dir, inv.params.delta * 0.5)
+          orbitRef.current.update()
+        }
+        break
+      case 'rotate':
+        if (orbitRef.current) {
+          const angle = inv.params.angle * 0.05
+          const rt = orbitRef.current.target
+          const cam = orbitRef.current.object
+          const ox = cam.position.x - rt.x
+          const oz = cam.position.z - rt.z
+          cam.position.x = rt.x + ox * Math.cos(angle) - oz * Math.sin(angle)
+          cam.position.z = rt.z + ox * Math.sin(angle) + oz * Math.cos(angle)
+          cam.lookAt(rt)
+          orbitRef.current.update()
+        }
+        break
+    }
+  }, [selectNode, selectSecondaryNode, selectCluster])
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && activeModal !== null) {
-        setActiveModal(null)
+      // Skip when typing in input/textarea/select
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      // Escape dismisses modals/guide
+      if (e.key === 'Escape') {
+        if (gestureGuideVisible) { setGestureGuideVisible(false); return }
+        if (activeModal !== null) { setActiveModal(null); return }
+        return
+      }
+
+      // Ctrl+Z: Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        performUndo()
+        return
+      }
+
+      // ? key: Toggle gesture guide
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault()
+        setGestureGuideVisible(v => !v)
+        return
+      }
+
+      // View mode shortcuts (1/2/3)
+      if (e.key === '1') { setViewMode('graph'); return }
+      if (e.key === '2') { setViewMode('manifold'); return }
+      if (e.key === '3') { setViewMode('split'); return }
+
+      // Feature toggles (F1-F5)
+      if (e.key === 'F1') {
+        e.preventDefault()
+        updateConfig({ overlay: { ...config.overlay, showMotionMetrics: !config.overlay.showMotionMetrics } })
+        return
+      }
+      if (e.key === 'F3') {
+        e.preventDefault()
+        updateConfig({ visualization: { ...config.visualization, showAxisLabels: !config.visualization.showAxisLabels, showClusterLegend: !config.visualization.showClusterLegend } })
+        return
+      }
+      if (e.key === 'F4') {
+        e.preventDefault()
+        updateConfig({ visualization: { ...config.visualization, proximityColoring: !config.visualization.proximityColoring } })
+        return
+      }
+      if (e.key === 'F5') {
+        e.preventDefault()
+        updateConfig({ overlay: { ...config.overlay, showMotionTrail: !config.overlay.showMotionTrail } })
+        return
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeModal, setActiveModal])
+  }, [activeModal, setActiveModal, gestureGuideVisible, performUndo, setViewMode, updateConfig, config])
 
   // Auto-dismiss toasts based on their dismissMs
   useEffect(() => {
@@ -620,6 +813,9 @@ export function App(): React.ReactElement {
               {hoveredPoint && (
                 <HoverCard point={hoveredPoint} visible={true} />
               )}
+              {embeddingBounds && config.visualization.showAxisLabels && (
+                <AxisLabels bounds={embeddingBounds} />
+              )}
             </>
           )}
 
@@ -640,13 +836,27 @@ export function App(): React.ReactElement {
         activeProfileId={activeProfileId}
         onProfileChange={handleSetActiveProfile}
         cameraCount={cameraCount}
+        trackingQuality={trackingQuality}
+        onToggleGuide={() => setGestureGuideVisible(v => !v)}
+        canUndo={undoStackRef.current.canUndo}
+        onUndo={performUndo}
       />
+
+      {/* Cluster Legend — manifold view, hidden in overlay */}
+      {!overlayMode && (viewMode === 'manifold' || viewMode === 'split') && embeddingData && config.visualization.showClusterLegend && (
+        <ClusterLegend
+          clusters={clusterLegendData}
+          selectedClusterId={selectedClusterId}
+          onClusterClick={(id) => selectCluster(id)}
+        />
+      )}
 
       {/* Selection Info Panel — hidden in overlay mode */}
       {!overlayMode && <SelectionPanel
         selectedNodeInfo={selectedNodeInfo}
         selectedPointInfo={selectedPointInfo}
-        onDeselect={() => selectNode(null)}
+        selectionInfo={selectionInfo}
+        onDeselect={() => select(null)}
       />}
 
       {/* Gesture Overlay */}
@@ -656,6 +866,9 @@ export function App(): React.ReactElement {
         visible={trackingEnabled}
         width={windowSize.width}
         height={windowSize.height}
+        motionMetrics={motionMetrics}
+        showMotionMetrics={config.overlay.showMotionMetrics}
+        showMotionTrail={config.overlay.showMotionTrail}
       />
 
       {/* Hand Chord Overlays */}
@@ -663,6 +876,9 @@ export function App(): React.ReactElement {
         landmarkFrame={landmarkFrame}
         visible={trackingEnabled}
       />
+
+      {/* Gesture Guide Overlay */}
+      <GestureGuide visible={gestureGuideVisible} onClose={() => setGestureGuideVisible(false)} />
 
       {/* Toast Queue — hidden in overlay mode */}
       {!overlayMode && <ToastQueue toasts={toasts} onDismiss={removeToast} />}

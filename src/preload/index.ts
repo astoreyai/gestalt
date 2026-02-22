@@ -128,6 +128,16 @@ const api = {
   closeWindow: (): void =>
     ipcRenderer.send(IPC.WINDOW_CLOSE),
 
+  // ─── Data Pipeline ──────────────────────────────────────────
+  scanDirectory: (path: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC.PIPELINE_SCAN_DIRECTORY, path),
+
+  readImage: (path: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.PIPELINE_READ_IMAGE, path),
+
+  generateThumbnail: (path: string, size?: number): Promise<string> =>
+    ipcRenderer.invoke(IPC.PIPELINE_GENERATE_THUMBNAIL, path, size),
+
   // ─── Dev ──────────────────────────────────────────────────────
   echo: (msg: string): Promise<string> =>
     ipcRenderer.invoke(IPC.ECHO, msg)

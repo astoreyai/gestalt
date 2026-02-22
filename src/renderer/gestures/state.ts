@@ -16,7 +16,6 @@ import {
 import { type GestureConfig, DEFAULT_GESTURE_CONFIG } from './types'
 import { classifyGesture, detectPinch, distance } from './classifier'
 
-const INV_PI = 1 / Math.PI
 const TWO_PI = 2 * Math.PI
 
 // ─── State Machine ──────────────────────────────────────────────────
@@ -230,14 +229,13 @@ export class GestureEngine {
   /** Compute hand orientation angle for twist detection using multiple landmarks for robustness */
   private computeHandAngle(hand: Hand): number {
     const wrist = hand.landmarks[LANDMARK.WRIST]
-    // Average angle from 3 MCP joints for noise-robust rotation estimate
-    let sumAngle = 0
-    const mcps = [LANDMARK.INDEX_MCP, LANDMARK.MIDDLE_MCP, LANDMARK.RING_MCP]
-    for (const idx of mcps) {
-      const lm = hand.landmarks[idx]
-      sumAngle += Math.atan2(lm.y - wrist.y, lm.x - wrist.x)
-    }
-    return sumAngle / mcps.length
+    // Average the MCP dx/dy vectors then use a single atan2 (1 call instead of 3)
+    const idx = hand.landmarks[LANDMARK.INDEX_MCP]
+    const mid = hand.landmarks[LANDMARK.MIDDLE_MCP]
+    const rng = hand.landmarks[LANDMARK.RING_MCP]
+    const avgDx = (idx.x + mid.x + rng.x) / 3 - wrist.x
+    const avgDy = (idx.y + mid.y + rng.y) / 3 - wrist.y
+    return Math.atan2(avgDy, avgDx)
   }
 
   /** Detect twist gesture based on hand rotation over time */
@@ -298,22 +296,27 @@ export class GestureEngine {
     return out
   }
 
+  /** Pre-allocated position objects per hand for gesturePosition (zero GC) */
+  private readonly _gesturePositionLeft = { x: 0, y: 0, z: 0 }
+  private readonly _gesturePositionRight = { x: 0, y: 0, z: 0 }
+
   /** Get gesture-specific position: finger tip for Point, pinch midpoint for Pinch, palm for others */
   private gesturePosition(hand: Hand, gestureType: GestureType): { x: number; y: number; z: number } {
+    const out = hand.handedness === 'left' ? this._gesturePositionLeft : this._gesturePositionRight
     if (gestureType === GestureType.Point) {
       const tip = hand.landmarks[LANDMARK.INDEX_TIP]
-      return { x: tip.x, y: tip.y, z: tip.z }
-    }
-    if (gestureType === GestureType.Pinch) {
+      out.x = tip.x; out.y = tip.y; out.z = tip.z
+    } else if (gestureType === GestureType.Pinch) {
       const thumb = hand.landmarks[LANDMARK.THUMB_TIP]
       const index = hand.landmarks[LANDMARK.INDEX_TIP]
-      return {
-        x: (thumb.x + index.x) / 2,
-        y: (thumb.y + index.y) / 2,
-        z: (thumb.z + index.z) / 2
-      }
+      out.x = (thumb.x + index.x) / 2
+      out.y = (thumb.y + index.y) / 2
+      out.z = (thumb.z + index.z) / 2
+    } else {
+      const center = this.handCenter(hand)
+      out.x = center.x; out.y = center.y; out.z = center.z
     }
-    return this.handCenter(hand)
+    return out
   }
 
   /**
@@ -377,7 +380,7 @@ export class GestureEngine {
             type: GestureType.Twist,
             phase,
             hand: hand.handedness,
-            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) * INV_PI) : 0,
+            confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) / effectiveConfig.twistMinRotation) : 0,
             position: handCenters.get(hand.handedness)!,
             timestamp,
             data: { rotation: twist.rotation }

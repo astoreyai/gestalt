@@ -4,6 +4,8 @@
 
 import React, { useState, useCallback, useRef } from 'react'
 import { validateData } from './validators'
+import { directoryToGraph, imagesToGraphNodes } from './pipeline'
+import type { DirectoryEntry } from './pipeline'
 import type { GraphData, EmbeddingData } from '@shared/protocol'
 
 export interface DataLoaderProps {
@@ -119,44 +121,112 @@ export function DataLoader({ onGraphLoaded, onEmbeddingLoaded, onError }: DataLo
     reader.readAsText(file)
   }, [processContent, onError])
 
+  const handleImportDirectory = useCallback(async () => {
+    if (!window.api) return
+    setLoading(true)
+    try {
+      const path = await window.api.openFileDialog([{ name: 'All Files', extensions: ['*'] }])
+      if (path) {
+        // Use the parent directory of the selected file
+        const dirPath = path.split('/').slice(0, -1).join('/')
+        const tree = await window.api.scanDirectory(dirPath) as DirectoryEntry
+        const graph = directoryToGraph(tree)
+        onGraphLoaded(graph)
+      }
+    } catch (err) {
+      onError(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [onGraphLoaded, onError])
+
+  const handleImportImages = useCallback(async () => {
+    if (!window.api) return
+    setLoading(true)
+    try {
+      const path = await window.api.openFileDialog([
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }
+      ])
+      if (path) {
+        const thumbnail = await window.api.generateThumbnail(path, 128)
+        const name = path.split('/').pop() ?? 'image'
+        const nodes = imagesToGraphNodes([{ id: path, name, thumbnail }])
+        const graph: GraphData = { nodes, edges: [] }
+        onGraphLoaded(graph)
+      }
+    } catch (err) {
+      onError(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [onGraphLoaded, onError])
+
+  const importBtnStyle: React.CSSProperties = {
+    padding: '6px 14px',
+    background: 'var(--button-bg, #1a1a2e)',
+    border: '1px solid var(--border, #333)',
+    borderRadius: 6,
+    color: 'var(--accent, #4a9eff)',
+    cursor: 'pointer',
+    fontSize: 12
+  }
+
   return (
-    <div
-      onDrop={handleDrop}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-      onDragLeave={() => setDragOver(false)}
-      style={{
-        padding: 24,
-        border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-        borderRadius: 12,
-        textAlign: 'center',
-        background: dragOver ? 'rgba(74, 158, 255, 0.05)' : 'transparent',
-        transition: 'all 0.2s',
-        cursor: 'pointer'
-      }}
-      onClick={handleFileSelect}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') handleFileSelect() }}
-    >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json,.graphml"
-        onChange={handleInputChange}
-        style={{ display: 'none' }}
-      />
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <>
-          <p style={{ fontSize: 16, marginBottom: 8 }}>
-            Drop a file here or click to open
-          </p>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Supports JSON (graph or embedding) and GraphML
-          </p>
-        </>
-      )}
+    <div>
+      <div
+        onDrop={handleDrop}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        style={{
+          padding: 24,
+          border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
+          borderRadius: 12,
+          textAlign: 'center',
+          background: dragOver ? 'rgba(74, 158, 255, 0.05)' : 'transparent',
+          transition: 'all 0.2s',
+          cursor: 'pointer'
+        }}
+        onClick={handleFileSelect}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') handleFileSelect() }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.graphml"
+          onChange={handleInputChange}
+          style={{ display: 'none' }}
+        />
+        {loading ? (
+          <p>Loading...</p>
+        ) : (
+          <>
+            <p style={{ fontSize: 16, marginBottom: 8 }}>
+              Drop a file here or click to open
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Supports JSON (graph or embedding) and GraphML
+            </p>
+          </>
+        )}
+      </div>
+      {/* Import section for everyday computing data */}
+      <div style={{
+        borderTop: '1px solid var(--border)',
+        marginTop: 12,
+        paddingTop: 10
+      }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 8px 0' }}>Import:</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleImportDirectory} style={importBtnStyle} disabled={loading}>
+            Directory as Graph
+          </button>
+          <button onClick={handleImportImages} style={importBtnStyle} disabled={loading}>
+            Image as Node
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -3,11 +3,14 @@
  * Routes gestures to the appropriate handler based on active view mode.
  */
 
-import type { GestureEvent, ViewMode } from '@shared/protocol'
+import type { GestureEvent, ViewMode, SelectableObject } from '@shared/protocol'
 import { GestureType, GesturePhase } from '@shared/protocol'
 
 export interface DispatchContext {
   viewMode: ViewMode
+  /** Unified selection — any selectable object */
+  selection?: SelectableObject | null
+  /** @deprecated Convenience alias — use selection */
   selectedNodeId: string | null
   selectedClusterId: number | null
   oneHandedMode?: boolean
@@ -19,6 +22,7 @@ export interface SceneAction {
     | 'orbit' | 'roll' | 'dolly'
     | 'inspect' | 'scale_node' | 'measure'
     | 'fold' | 'unfold'
+    | 'undo'
   params: Record<string, number | string | null>
   hand?: 'left' | 'right'
 }
@@ -29,6 +33,9 @@ export type DispatchResult = SceneAction | SceneAction[]
 /** Minimum confidence to dispatch an action (below this → noop) */
 const MIN_DISPATCH_CONFIDENCE = 0.3
 
+/** Pre-allocated noop action to avoid per-call object creation */
+const NOOP_ACTION: SceneAction = { type: 'noop', params: {} }
+
 /** Dispatch a gesture event to a scene action based on view mode */
 export function dispatchGesture(
   gesture: GestureEvent,
@@ -36,7 +43,7 @@ export function dispatchGesture(
 ): SceneAction {
   // Gate on confidence — only filter low-confidence Onset events (Hold/Release already passed onset)
   if (gesture.phase === GesturePhase.Onset && gesture.confidence > 0 && gesture.confidence < MIN_DISPATCH_CONFIDENCE) {
-    return { type: 'noop', params: {} }
+    return NOOP_ACTION
   }
 
   let action: SceneAction
@@ -56,7 +63,7 @@ export function dispatchGesture(
       }
       break
     default:
-      action = { type: 'noop', params: {} }
+      action = NOOP_ACTION
   }
   // Tag action with hand for per-hand state tracking
   action.hand = gesture.hand
@@ -85,13 +92,13 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
           params: { x: gesture.position.x, y: gesture.position.y, z: gesture.position.z }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.OpenPalm:
       if (gesture.phase === GesturePhase.Onset) {
         return { type: 'deselect', params: {} }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.Twist:
       if (gesture.phase === GesturePhase.Hold) {
@@ -103,7 +110,7 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
           }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.Point:
       if (gesture.phase === GesturePhase.Hold) {
@@ -112,7 +119,7 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
           params: { x: gesture.position.x, y: gesture.position.y, z: gesture.position.z }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.FlatDrag:
       if (gesture.phase === GesturePhase.Hold) {
@@ -124,7 +131,7 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
           }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.TwoHandPinch:
       if (gesture.phase === GesturePhase.Hold) {
@@ -135,10 +142,10 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
           }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     default:
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
   }
 }
 
@@ -157,7 +164,7 @@ function dispatchOneHandedAction(gesture: GestureEvent): SceneAction | null {
           params: { delta: 1 }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.LShape:
       // LShape -> zoom out
@@ -167,7 +174,7 @@ function dispatchOneHandedAction(gesture: GestureEvent): SceneAction | null {
           params: { delta: -1 }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.OpenPalm:
       // OpenPalm -> pan/drag (instead of deselect)
@@ -177,11 +184,11 @@ function dispatchOneHandedAction(gesture: GestureEvent): SceneAction | null {
           params: { dx: gesture.position.x, dy: gesture.position.y }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.TwoHandPinch:
       // TwoHandPinch is not used in one-handed mode
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     default:
       return null
@@ -209,7 +216,7 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           params: { x: gesture.position.x, y: gesture.position.y, z: gesture.position.z }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.Point:
       if (gesture.phase === GesturePhase.Hold) {
@@ -218,13 +225,13 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           params: { x: gesture.position.x, y: gesture.position.y, z: gesture.position.z }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.OpenPalm:
       if (gesture.phase === GesturePhase.Onset) {
         return { type: 'deselect', params: {} }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.FlatDrag:
       if (gesture.phase === GesturePhase.Hold) {
@@ -233,7 +240,7 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           params: { dx: gesture.position.x, dy: gesture.position.y }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.TwoHandPinch:
       if (gesture.phase === GesturePhase.Hold) {
@@ -242,7 +249,7 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           params: { delta: gesture.data?.handDistance ?? 0 }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     case GestureType.Twist:
       if (gesture.phase === GesturePhase.Hold) {
@@ -251,10 +258,10 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           params: { angle: gesture.data?.rotation ?? 0, axis: 'y' }
         }
       }
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
 
     default:
-      return { type: 'noop', params: {} }
+      return NOOP_ACTION
   }
 }
 
@@ -342,7 +349,7 @@ export function dispatchTwoHandAction(
   const eitherOnset = left.phase === GesturePhase.Onset || right.phase === GesturePhase.Onset
 
   if (!bothHold && !eitherOnset) {
-    return { type: 'noop', params: {} }
+    return NOOP_ACTION
   }
 
   const handler = TWO_HAND_COMBOS.get(comboKey(left.type, right.type))
@@ -350,5 +357,5 @@ export function dispatchTwoHandAction(
     return handler(left, right, context)
   }
 
-  return { type: 'noop', params: {} }
+  return NOOP_ACTION
 }

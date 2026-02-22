@@ -4,7 +4,7 @@
  * on a graph node or manifold point.
  */
 
-import type { GraphData, EmbeddingData } from '@shared/protocol'
+import type { GraphData, EmbeddingData, SelectableObject } from '@shared/protocol'
 
 export interface SelectedNodeInfo {
   id: string
@@ -85,5 +85,51 @@ export function getSelectedPointInfo(pointId: string, embeddings: EmbeddingData)
     clusterLabel,
     clusterColor,
     metadata: point.metadata
+  }
+}
+
+/** Unified selection info — resolves any SelectableObject to its display info */
+export type SelectionInfo =
+  | { kind: 'node'; info: SelectedNodeInfo }
+  | { kind: 'point'; info: SelectedPointInfo }
+  | { kind: 'cluster'; info: { id: number; label?: string; color?: string } }
+  | { kind: 'none' }
+
+export function resolveSelectionInfo(
+  obj: SelectableObject | null,
+  graphData: GraphData | null,
+  embeddingData: EmbeddingData | null
+): SelectionInfo {
+  if (!obj) return { kind: 'none' }
+
+  switch (obj.kind) {
+    case 'node': {
+      if (graphData) {
+        const info = getSelectedNodeInfo(obj.id, graphData)
+        if (info) return { kind: 'node', info }
+      }
+      // Fall through: might be an embedding point stored as node kind
+      if (embeddingData) {
+        const info = getSelectedPointInfo(obj.id, embeddingData)
+        if (info) return { kind: 'point', info }
+      }
+      return { kind: 'none' }
+    }
+    case 'point': {
+      if (embeddingData) {
+        const info = getSelectedPointInfo(obj.id, embeddingData)
+        if (info) return { kind: 'point', info }
+      }
+      return { kind: 'none' }
+    }
+    case 'cluster': {
+      if (embeddingData?.clusters) {
+        const cluster = embeddingData.clusters.find(c => c.id === obj.id)
+        if (cluster) return { kind: 'cluster', info: { id: cluster.id, label: cluster.label, color: cluster.color } }
+      }
+      return { kind: 'none' }
+    }
+    default:
+      return { kind: 'none' }
   }
 }
