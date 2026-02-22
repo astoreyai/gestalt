@@ -7,6 +7,7 @@
 import React, { useRef } from 'react'
 import type { ModalId } from '../controller/store'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { Z_INDEX } from '../styles/tokens'
 
 export interface ModalContainerProps {
   activeModal: ModalId
@@ -40,7 +41,7 @@ export function ModalContainer({ activeModal, onClose, children }: ModalContaine
           position: 'fixed',
           inset: 0,
           background: 'rgba(0,0,0,0.5)',
-          zIndex: 140
+          zIndex: Z_INDEX.modalBackdrop
         }}
       />
 
@@ -55,7 +56,7 @@ export function ModalContainer({ activeModal, onClose, children }: ModalContaine
           top: '50%',
           left: '50%',
           transform: 'translate(-50%, -50%)',
-          zIndex: 150,
+          zIndex: Z_INDEX.modal,
           width: 'min(500px, 90vw)',
           maxHeight: '85vh',
           overflowY: 'auto'

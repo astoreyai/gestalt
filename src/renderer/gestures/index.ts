@@ -34,15 +34,9 @@ export {
 // State machine and engine
 export { GestureState, GestureStateMachine, GestureEngine } from './state'
 
-// Mappings
+// One-handed accessibility mappings (includes GestureMapping type)
 export {
   type GestureMapping,
-  DEFAULT_MAPPINGS,
-  mapGestureToCommand
-} from './mappings'
-
-// One-handed accessibility mappings
-export {
   ONE_HANDED_MAPPINGS,
   getOneHandedMappings
 } from './one-handed'

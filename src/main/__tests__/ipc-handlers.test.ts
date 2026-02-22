@@ -104,7 +104,8 @@ vi.mock('../deep-merge', () => ({
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn().mockResolvedValue('file content here'),
-  stat: vi.fn().mockResolvedValue({ size: 1024 })
+  stat: vi.fn().mockResolvedValue({ size: 1024 }),
+  realpath: vi.fn().mockImplementation(async (p: string) => p)
 }))
 
 // ─── Setup ───────────────────────────────────────────────────────

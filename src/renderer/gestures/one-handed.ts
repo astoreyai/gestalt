@@ -8,10 +8,16 @@ import {
   GestureType,
   GesturePhase,
   type MouseCommand,
+  type KeyboardCommand,
   type BuiltinCommand
 } from '@shared/protocol'
 
-import type { GestureMapping } from './mappings'
+/** A gesture-to-command mapping entry. */
+export interface GestureMapping {
+  gesture: GestureType
+  phase: GesturePhase
+  action: MouseCommand | KeyboardCommand | BuiltinCommand
+}
 
 /**
  * One-handed gesture mappings — same shape as DEFAULT_MAPPINGS but only

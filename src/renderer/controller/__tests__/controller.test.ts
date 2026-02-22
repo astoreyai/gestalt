@@ -115,12 +115,12 @@ describe('Gesture Dispatcher', () => {
       expect(action.params.delta).toBe(0.8)
     })
 
-    it('should dispatch noop for fist gesture', () => {
+    it('should dispatch context_menu for fist gesture onset in graph mode', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Fist, GesturePhase.Onset),
         graphCtx
       )
-      expect(action.type).toBe('noop')
+      expect(action.type).toBe('context_menu')
     })
 
     it('should dispatch navigate for point gesture in graph mode', () => {

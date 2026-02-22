@@ -294,25 +294,41 @@ function setupIpcHandlers(): void {
       ? join(process.resourcesPath, 'samples')
       : join(__dirname, '../../assets/samples'))
     const filePath = join(samplesDir, name)
-    // Verify resolved path stays within samples dir
+    // TOCTOU fix: resolve symlinks atomically before path validation and read
+    const { realpath: fsRealpath } = await import('fs/promises')
+    let resolvedPath: string
+    try {
+      resolvedPath = await fsRealpath(filePath)
+    } catch {
+      throw new Error('Sample file not found')
+    }
     const { resolve } = await import('path')
-    const resolved = resolve(filePath)
-    if (!resolved.startsWith(resolve(samplesDir))) {
+    const resolvedDir = await fsRealpath(samplesDir).catch(() => resolve(samplesDir))
+    if (!resolvedPath.startsWith(resolvedDir + '/') && resolvedPath !== resolvedDir) {
       throw new Error('Invalid sample path')
     }
-    return await readFile(resolved, 'utf-8')
+    return await readFile(resolvedPath, 'utf-8')
   })
 
   ipcMain.handle(IPC.FILE_LOAD, async (_event, path: string) => {
     try {
-      if (!isAllowedPath(path)) {
+      // TOCTOU fix: resolve symlinks before validation to prevent race condition
+      // where a symlink is swapped between isAllowedPath() and readFile()
+      const { realpath: fsRealpath } = await import('fs/promises')
+      let resolvedPath: string
+      try {
+        resolvedPath = await fsRealpath(path)
+      } catch {
         throw new Error('Access denied: file path outside allowed directories')
       }
-      const info = await stat(path)
+      if (!isAllowedPath(resolvedPath)) {
+        throw new Error('Access denied: file path outside allowed directories')
+      }
+      const info = await stat(resolvedPath)
       if (info.size > MAX_FILE_SIZE) {
         throw new Error(`File too large: ${info.size} bytes (max ${MAX_FILE_SIZE})`)
       }
-      return await readFile(path, 'utf-8')
+      return await readFile(resolvedPath, 'utf-8')
     } catch (err) {
       if (err instanceof Error && (err.message.startsWith('Access denied') || err.message.startsWith('File too large'))) throw err
       throw new Error(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`)

@@ -8,27 +8,28 @@ import React from 'react'
 import { A11Y_COLORS } from '../controller/a11y'
 import { sanitizeDisplayValue, sanitizeMetadata } from '../controller/sanitize'
 import type { SelectedNodeInfo, SelectedPointInfo, SelectionInfo } from '../controller/selection-info'
+import { COLORS, FONT_SIZE, SPACING } from '../styles/tokens'
 
 /** Shared button style (matches App.tsx buttonStyle) */
 const buttonStyle: React.CSSProperties = {
   padding: '6px 12px',
-  background: 'var(--button-bg)',
-  border: '1px solid var(--border)',
+  background: COLORS.buttonBg,
+  border: `1px solid ${COLORS.border}`,
   borderRadius: 6,
-  color: 'var(--button-text)',
+  color: COLORS.buttonText,
   cursor: 'pointer',
-  fontSize: 12
+  fontSize: FONT_SIZE.md
 }
 
 /** Shared panel style for the selection info container — offset left to avoid ClusterLegend */
 const panelStyle: React.CSSProperties = {
   position: 'absolute',
-  bottom: 16,
+  bottom: SPACING.lg,
   left: 220,
-  padding: 16,
-  background: 'var(--panel-bg)',
-  borderRadius: 12,
-  border: '1px solid var(--border)',
+  padding: SPACING.lg,
+  background: COLORS.panelBg,
+  borderRadius: SPACING.md,
+  border: `1px solid ${COLORS.border}`,
   maxWidth: 300
 }
 

@@ -6,13 +6,10 @@
  *                                                         │
  *                     ┌───────────────────────────────────┤
  *                     ▼                                   ▼
- *            mapGestureToCommand()              dispatchGesture()
+ *            dispatchGesture()                    BusFanout
  *                     │                                   │
  *                     ▼                                   ▼
- *            Command → Mouse/KB                   SceneAction
- *                     │
- *                     ▼
- *            BusFanout → WebSocket clients
+ *              SceneAction                     WebSocket clients
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -30,7 +27,6 @@ import {
 import { LandmarkSmoother } from '@renderer/tracker/filters'
 import { classifyGesture } from '@renderer/gestures/classifier'
 import { GestureEngine } from '@renderer/gestures/state'
-import { mapGestureToCommand } from '@renderer/gestures/mappings'
 import { dispatchGesture, type DispatchContext } from '@renderer/controller/dispatcher'
 import { VirtualMouse } from '@main/input/mouse'
 import { VirtualKeyboard } from '@main/input/keyboard'
@@ -271,97 +267,6 @@ describe('Integration: Full Pipeline', () => {
       const pointEvent = events.find(e => e.type === GestureType.Point)
       expect(pointEvent).toBeDefined()
       expect(pointEvent!.phase).toBe(GesturePhase.Onset)
-    })
-  })
-
-  describe('GestureEvent → mapGestureToCommand → Command', () => {
-    it('should map pinch onset to mouse click command', () => {
-      const event: GestureEvent = {
-        type: GestureType.Pinch,
-        phase: GesturePhase.Onset,
-        hand: 'right',
-        confidence: 0.9,
-        position: { x: 0.5, y: 0.5, z: 0.1 },
-        timestamp: 1000,
-        data: { distance: 0.02 }
-      }
-
-      const command = mapGestureToCommand(event)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('mouse')
-      const mouseCmd = command as MouseCommand
-      expect(mouseCmd.action).toBe('click')
-      expect(mouseCmd.button).toBe('left')
-      expect(mouseCmd.x).toBe(0.5)
-      expect(mouseCmd.y).toBe(0.5)
-    })
-
-    it('should map point onset to mouse move command', () => {
-      const event: GestureEvent = {
-        type: GestureType.Point,
-        phase: GesturePhase.Onset,
-        hand: 'right',
-        confidence: 0.9,
-        position: { x: 0.3, y: 0.7, z: 0.1 },
-        timestamp: 1000
-      }
-
-      const command = mapGestureToCommand(event)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('mouse')
-      const mouseCmd = command as MouseCommand
-      expect(mouseCmd.action).toBe('move')
-      expect(mouseCmd.x).toBe(0.3)
-      expect(mouseCmd.y).toBe(0.7)
-    })
-
-    it('should map fist onset to Escape key', () => {
-      const event: GestureEvent = {
-        type: GestureType.Fist,
-        phase: GesturePhase.Onset,
-        hand: 'right',
-        confidence: 0.9,
-        position: { x: 0.5, y: 0.5, z: 0 },
-        timestamp: 1000
-      }
-
-      const command = mapGestureToCommand(event)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('keyboard')
-      const kbCmd = command as KeyboardCommand
-      expect(kbCmd.action).toBe('press')
-      expect(kbCmd.key).toBe('Escape')
-    })
-
-    it('should map L-shape onset to Ctrl+Shift+T combo', () => {
-      const event: GestureEvent = {
-        type: GestureType.LShape,
-        phase: GesturePhase.Onset,
-        hand: 'right',
-        confidence: 0.85,
-        position: { x: 0.5, y: 0.5, z: 0 },
-        timestamp: 1000
-      }
-
-      const command = mapGestureToCommand(event)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('keyboard')
-      const kbCmd = command as KeyboardCommand
-      expect(kbCmd.action).toBe('combo')
-      expect(kbCmd.keys).toEqual(['ctrl', 'shift', 't'])
-    })
-
-    it('should return null for unmapped gesture-phase combos', () => {
-      const event: GestureEvent = {
-        type: GestureType.Fist,
-        phase: GesturePhase.Hold,
-        hand: 'right',
-        confidence: 0.9,
-        position: { x: 0.5, y: 0.5, z: 0 },
-        timestamp: 1000
-      }
-
-      expect(mapGestureToCommand(event)).toBeNull()
     })
   })
 
@@ -688,13 +593,7 @@ describe('Integration: Full Pipeline', () => {
       const pinchEvent = events.find(e => e.type === GestureType.Pinch)
       expect(pinchEvent).toBeDefined()
 
-      // 6. Map to command
-      const command = mapGestureToCommand(pinchEvent!)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('mouse')
-      expect((command as MouseCommand).action).toBe('click')
-
-      // 7. Dispatch to scene
+      // 6. Dispatch to scene
       const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
       const sceneAction = dispatchGesture(pinchEvent!, ctx)
       expect(sceneAction.type).toBe('select')
@@ -715,14 +614,13 @@ describe('Integration: Full Pipeline', () => {
       const pointOnset = events1.find(e => e.type === GestureType.Point)
       expect(pointOnset).toBeDefined()
 
-      // Map onset to command
-      const command = mapGestureToCommand(pointOnset!)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('mouse')
-      expect((command as MouseCommand).action).toBe('move')
+      // Point onset → noop (navigate only fires on hold)
+      const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
+      const sceneAction = dispatchGesture(pointOnset!, ctx)
+      expect(sceneAction.type).toBe('noop')
     })
 
-    it('should process fist landmarks through pipeline to keyboard escape', () => {
+    it('should process fist landmarks through pipeline to scene action', () => {
       const landmarks = makeFistLandmarks()
       const smoother = new LandmarkSmoother()
       const smoothed = smoother.smooth(landmarks, 0)
@@ -734,11 +632,11 @@ describe('Integration: Full Pipeline', () => {
 
       const fistEvent = events.find(e => e.type === GestureType.Fist)
       expect(fistEvent).toBeDefined()
-      const command = mapGestureToCommand(fistEvent!)
-      expect(command).not.toBeNull()
-      expect(command!.target).toBe('keyboard')
-      expect((command as KeyboardCommand).action).toBe('press')
-      expect((command as KeyboardCommand).key).toBe('Escape')
+
+      // Dispatch to scene
+      const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
+      const sceneAction = dispatchGesture(fistEvent!, ctx)
+      expect(sceneAction.type).toBe('context_menu')
     })
 
     it('should handle multi-gesture frame with bus fanout', () => {
@@ -781,19 +679,16 @@ describe('Integration: Full Pipeline', () => {
   })
 
   describe('Cross-module type compatibility', () => {
-    it('should pass GestureEvent type between engine, mappings, and dispatcher', () => {
+    it('should pass GestureEvent type between engine and dispatcher', () => {
       const engine = new GestureEngine({ minOnsetFrames: 1 })
       const hand = makeHand(makePinchLandmarks())
       const frame = makeFrame([hand], 1000, 1)
       const events = engine.processFrame(frame)
 
       for (const event of events) {
-        // Each event should be processable by both mapGestureToCommand and dispatchGesture
-        mapGestureToCommand(event) // verify it doesn't throw
         const ctx: DispatchContext = { viewMode: 'graph', selectedNodeId: null, selectedClusterId: null }
         const action = dispatchGesture(event, ctx)
 
-        // Both should return valid results (may be null/noop for some combos)
         expect(action).toBeDefined()
         expect(action.type).toBeDefined()
       }

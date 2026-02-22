@@ -38,6 +38,10 @@ export class BusServer {
   private rateLimits: Map<string, { buf: number[]; head: number; count: number }> = new Map()
   /** Authentication token — clients must provide this to connect */
   private token: string
+  /** Global rate limit tracking: timestamps of recent messages */
+  private _globalMsgTs: number[] = []
+  /** Active connection count for server-level max connections */
+  private _activeConns = 0
 
   constructor(config: BusServerConfig) {
     this.config = config
@@ -90,6 +94,12 @@ export class BusServer {
         })
 
         this.wss.on('connection', (ws, req) => {
+          // Max concurrent connections check (server-level, 50 max)
+          if (this._activeConns >= 50) {
+            ws.close(1013, 'Maximum connections reached')
+            return
+          }
+
           // Token authentication
           // NOTE (P2-31 accepted risk): Token is passed via URL query parameter.
           // This is a design trade-off — WebSocket upgrade requests do not support
@@ -113,6 +123,7 @@ export class BusServer {
             // Connection limit reached — ws already closed by ConnectionManager
             return
           }
+          this._activeConns++
           const ip = req.socket.remoteAddress ?? 'unknown'
           if (process.env.NODE_ENV !== 'production') {
             console.log(`[BusServer] Client connected: ${clientId} from ${ip}`)
@@ -125,10 +136,16 @@ export class BusServer {
               ws.close(1008, 'Rate limit exceeded')
               return
             }
+            // Global rate limit: 5000 msg/s across all clients
+            if (this._isGlobalRateLimited()) {
+              this.sendError(ws, 'RATE_LIMITED', 'Server rate limit exceeded')
+              return
+            }
             this.handleMessage(clientId, ws, data.toString())
           })
 
           ws.on('close', () => {
+            this._activeConns = Math.max(0, this._activeConns - 1)
             if (process.env.NODE_ENV !== 'production') {
               console.log(`[BusServer] Client disconnected: ${clientId}`)
             }
@@ -184,6 +201,22 @@ export class BusServer {
     return state.count > RATE_LIMIT
   }
 
+  /**
+   * Check if the global message rate limit has been exceeded.
+   * Sliding window: max 5000 messages/sec across all clients.
+   */
+  private _isGlobalRateLimited(): boolean {
+    const now = Date.now()
+    const cutoff = now - RATE_WINDOW_MS
+    // Evict expired entries from head
+    while (this._globalMsgTs.length > 0 && this._globalMsgTs[0] <= cutoff) {
+      this._globalMsgTs.shift()
+    }
+    if (this._globalMsgTs.length >= 5000) return true
+    this._globalMsgTs.push(now)
+    return false
+  }
+
   /** Handle an incoming message from a client */
   private handleMessage(clientId: string, ws: WebSocket, raw: string): void {
     let msg: unknown
@@ -210,6 +243,11 @@ export class BusServer {
         if (!Array.isArray(busMsg.capabilities) ||
             !busMsg.capabilities.every(c => typeof c === 'string')) {
           this.sendError(ws, 'VALIDATION_ERROR', 'Invalid capabilities array')
+          return
+        }
+        // Bound capabilities array to prevent DoS via oversized registration
+        if (busMsg.capabilities.length > 100) {
+          this.sendError(ws, 'VALIDATION_ERROR', 'Too many capabilities (max 100)')
           return
         }
         this.registry.register(clientId, ws, busMsg.program, busMsg.capabilities)
@@ -295,6 +333,8 @@ export class BusServer {
       this.connections.stopHeartbeat()
       this.registry.clear()
       this.rateLimits.clear()
+      this._globalMsgTs.length = 0
+      this._activeConns = 0
       this.running = false
 
       if (this.wss) {

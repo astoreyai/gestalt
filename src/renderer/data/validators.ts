@@ -11,9 +11,9 @@ export const GraphNodeSchema = z.object({
   id: z.string().min(1),
   label: z.string().optional(),
   position: z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number()
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite()
   }).optional(),
   color: z.string().optional(),
   size: z.number().positive().optional(),
@@ -35,6 +35,23 @@ export const GraphDataSchema = z.object({
   edges: z.array(GraphEdgeSchema)
     .max(50_000_000, 'Edge count exceeds 50 million limit'),
   metadata: z.record(z.unknown()).optional()
+}).superRefine((data, ctx) => {
+  const seen = new Set<string>()
+  const duplicates: string[] = []
+  for (const node of data.nodes) {
+    if (seen.has(node.id)) {
+      if (!duplicates.includes(node.id)) duplicates.push(node.id)
+    } else {
+      seen.add(node.id)
+    }
+  }
+  if (duplicates.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Duplicate node IDs: ${duplicates.join(', ')}`,
+      path: ['nodes']
+    })
+  }
 })
 
 // ─── Embedding Schemas ──────────────────────────────────────────
@@ -42,9 +59,9 @@ export const GraphDataSchema = z.object({
 export const EmbeddingPointSchema = z.object({
   id: z.string().min(1),
   position: z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number()
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite()
   }),
   clusterId: z.number().int().min(0).optional(),
   label: z.string().optional(),
@@ -56,9 +73,9 @@ export const ClusterSchema = z.object({
   label: z.string().optional(),
   color: z.string().optional(),
   centroid: z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number()
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite()
   }).optional()
 })
 

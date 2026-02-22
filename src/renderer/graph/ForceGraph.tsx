@@ -62,6 +62,10 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     /** Throttle setPositions to ~30fps to halve React re-renders during simulation */
     const lastSetTimeRef = useRef<number>(0)
     const SET_POSITIONS_INTERVAL = 33 // ms (~30fps)
+    /** Monotonic version counter — incremented whenever positions change.
+     *  Passed to Edges so it can skip GPU uploads via integer comparison
+     *  instead of Map identity (which always fails since we create new Maps). */
+    const positionVersionRef = useRef(0)
 
     // Expose imperative handle
     useImperativeHandle(
@@ -120,6 +124,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         const now = performance.now()
         if (result.done || now - lastSetTimeRef.current >= SET_POSITIONS_INTERVAL) {
           lastSetTimeRef.current = now
+          positionVersionRef.current++
           setPositions(newPositions)
         }
 
@@ -193,7 +198,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         if (bucket) bucket.push(id)
         else hash.set(key, [id])
       }
-    })
+    }, [positions])
 
     // Gesture-based hover: cast rays using spatial hash for O(nearby) lookup
     useEffect(() => {
@@ -314,6 +319,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
 
       if (updated) {
         positionsRef.current = updated
+        positionVersionRef.current++
         setPositions(updated)
       }
     }, [dragPositions, camera])
@@ -323,6 +329,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         <Edges
           edges={data.edges}
           positions={positions}
+          positionVersion={positionVersionRef.current}
           selectedId={selectedId}
           secondarySelectedId={secondarySelectedNodeId}
         />

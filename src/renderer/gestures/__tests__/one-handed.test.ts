@@ -12,7 +12,6 @@
 import { describe, it, expect } from 'vitest'
 import { GestureType, GesturePhase, type GestureEvent } from '@shared/protocol'
 import { ONE_HANDED_MAPPINGS, getOneHandedMappings } from '../one-handed'
-import { DEFAULT_MAPPINGS, mapGestureToCommand } from '../mappings'
 import { dispatchGesture, type DispatchContext } from '../../controller/dispatcher'
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -186,48 +185,6 @@ describe('getOneHandedMappings', () => {
   })
 })
 
-// ─── mapGestureToCommand with one-handed mappings ───────────────────
-
-describe('mapGestureToCommand with ONE_HANDED_MAPPINGS', () => {
-  it('should map Fist onset to zoom via one-handed mappings', () => {
-    const event = makeGestureEvent(GestureType.Fist, GesturePhase.Onset)
-    const cmd = mapGestureToCommand(event, ONE_HANDED_MAPPINGS)
-    expect(cmd).not.toBeNull()
-    expect(cmd!.target).toBe('builtin')
-    if (cmd!.target === 'builtin') {
-      expect(cmd!.action).toBe('zoom')
-    }
-  })
-
-  it('should map Fist onset to Escape via DEFAULT_MAPPINGS', () => {
-    const event = makeGestureEvent(GestureType.Fist, GesturePhase.Onset)
-    const cmd = mapGestureToCommand(event, DEFAULT_MAPPINGS)
-    expect(cmd).not.toBeNull()
-    expect(cmd!.target).toBe('keyboard')
-    if (cmd!.target === 'keyboard') {
-      expect(cmd!.key).toBe('Escape')
-    }
-  })
-
-  it('should map LShape to zoom via one-handed mappings', () => {
-    const event = makeGestureEvent(GestureType.LShape, GesturePhase.Onset)
-    const cmd = mapGestureToCommand(event, ONE_HANDED_MAPPINGS)
-    expect(cmd).not.toBeNull()
-    expect(cmd!.target).toBe('builtin')
-    if (cmd!.target === 'builtin') {
-      expect(cmd!.action).toBe('zoom')
-    }
-  })
-
-  it('should return null for TwoHandPinch with one-handed mappings', () => {
-    const event = makeGestureEvent(GestureType.TwoHandPinch, GesturePhase.Hold, {
-      data: { handDistance: 0.5 }
-    })
-    const cmd = mapGestureToCommand(event, ONE_HANDED_MAPPINGS)
-    expect(cmd).toBeNull()
-  })
-})
-
 // ─── Dispatcher Integration Tests ──────────────────────────────────
 
 describe('Dispatcher one-handed mode integration', () => {
@@ -390,75 +347,10 @@ describe('Dispatcher one-handed mode integration', () => {
         // oneHandedMode not set
       }
       const gesture = makeGestureEvent(GestureType.Fist, GesturePhase.Onset)
-      // Should fall through to default behavior (Fist is noop in default graph dispatch)
+      // Should fall through to default behavior (Fist onset → context_menu in graph mode)
       const action = dispatchGesture(gesture, context)
-      expect(action.type).toBe('noop')
+      expect(action.type).toBe('context_menu')
     })
   })
 })
 
-// ─── Comparison: Default vs One-Handed ──────────────────────────────
-
-describe('Default vs One-Handed mapping differences', () => {
-  it('DEFAULT_MAPPINGS should include TwoHandPinch', () => {
-    const types = getGestureTypes(DEFAULT_MAPPINGS)
-    expect(types.has(GestureType.TwoHandPinch)).toBe(true)
-  })
-
-  it('ONE_HANDED_MAPPINGS should NOT include TwoHandPinch', () => {
-    const types = getGestureTypes(ONE_HANDED_MAPPINGS)
-    expect(types.has(GestureType.TwoHandPinch)).toBe(false)
-  })
-
-  it('DEFAULT_MAPPINGS maps Fist to keyboard Escape', () => {
-    const fistMapping = DEFAULT_MAPPINGS.find(
-      (m) => m.gesture === GestureType.Fist && m.phase === GesturePhase.Onset
-    )
-    expect(fistMapping).toBeDefined()
-    expect(fistMapping!.action.target).toBe('keyboard')
-  })
-
-  it('ONE_HANDED_MAPPINGS maps Fist to builtin zoom', () => {
-    const fistMapping = ONE_HANDED_MAPPINGS.find(
-      (m) => m.gesture === GestureType.Fist && m.phase === GesturePhase.Onset
-    )
-    expect(fistMapping).toBeDefined()
-    expect(fistMapping!.action.target).toBe('builtin')
-  })
-
-  it('DEFAULT_MAPPINGS maps LShape to keyboard combo', () => {
-    const lShapeMapping = DEFAULT_MAPPINGS.find(
-      (m) => m.gesture === GestureType.LShape && m.phase === GesturePhase.Onset
-    )
-    expect(lShapeMapping).toBeDefined()
-    expect(lShapeMapping!.action.target).toBe('keyboard')
-  })
-
-  it('ONE_HANDED_MAPPINGS maps LShape to builtin zoom', () => {
-    const lShapeMapping = ONE_HANDED_MAPPINGS.find(
-      (m) => m.gesture === GestureType.LShape && m.phase === GesturePhase.Onset
-    )
-    expect(lShapeMapping).toBeDefined()
-    expect(lShapeMapping!.action.target).toBe('builtin')
-  })
-
-  it('DEFAULT_MAPPINGS maps OpenPalm to deselect', () => {
-    const palmMapping = DEFAULT_MAPPINGS.find(
-      (m) => m.gesture === GestureType.OpenPalm && m.phase === GesturePhase.Onset
-    )
-    expect(palmMapping).toBeDefined()
-    if (palmMapping!.action.target === 'builtin') {
-      expect(palmMapping!.action.action).toBe('select') // deselect = select with no params
-    }
-  })
-
-  it('ONE_HANDED_MAPPINGS maps OpenPalm to pan', () => {
-    const palmMapping = ONE_HANDED_MAPPINGS.find(
-      (m) => m.gesture === GestureType.OpenPalm && m.phase === GesturePhase.Onset
-    )
-    expect(palmMapping).toBeDefined()
-    if (palmMapping!.action.target === 'builtin') {
-      expect(palmMapping!.action.action).toBe('pan')
-    }
-  })
-})

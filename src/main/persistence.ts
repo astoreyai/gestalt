@@ -91,10 +91,18 @@ class JsonStore<T extends object> {
   }
 
   private save(): void {
-    const tempPath = `${this.filePath}.tmp`
+    // Use a unique temp path per write to avoid collisions between concurrent
+    // processes or rapid successive writes that could race on the same .tmp file.
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`
     // Compact JSON (no formatting) — ~3x smaller than pretty-printed
-    writeFileSync(tempPath, JSON.stringify(this.data), { mode: 0o600 })
-    renameSync(tempPath, this.filePath)
+    try {
+      writeFileSync(tempPath, JSON.stringify(this.data), { mode: 0o600 })
+      renameSync(tempPath, this.filePath)
+    } catch (err) {
+      // Clean up the temp file on failure to avoid leaking partial writes
+      try { unlinkSync(tempPath) } catch { /* ignore cleanup failure */ }
+      throw err
+    }
   }
 }
 

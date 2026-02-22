@@ -17,7 +17,7 @@ import {
 // ─── Z_INDEX ────────────────────────────────────────────────────────
 
 describe('Z_INDEX', () => {
-  it('defines all 10 z-index levels', () => {
+  it('defines all z-index levels', () => {
     const expectedKeys = [
       'base',
       'dropdown',
@@ -26,7 +26,8 @@ describe('Z_INDEX', () => {
       'modal',
       'toast',
       'gestureOverlay',
-      'guide'
+      'guide',
+      'onboarding'
     ]
     for (const key of expectedKeys) {
       expect(Z_INDEX).toHaveProperty(key)
@@ -43,7 +44,8 @@ describe('Z_INDEX', () => {
       Z_INDEX.modal,
       Z_INDEX.toast,
       Z_INDEX.gestureOverlay,
-      Z_INDEX.guide
+      Z_INDEX.guide,
+      Z_INDEX.onboarding
     ]
     for (let i = 1; i < ordered.length; i++) {
       expect(ordered[i]).toBeGreaterThan(ordered[i - 1])

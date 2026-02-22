@@ -5,7 +5,7 @@
 
 import React from 'react'
 import { getGestureIcon } from './gesture-icons'
-import { COLORS } from '../styles/tokens'
+import { COLORS, Z_INDEX } from '../styles/tokens'
 
 export interface GestureGuideProps {
   visible: boolean
@@ -49,7 +49,7 @@ const overlayStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  zIndex: 1000,
+  zIndex: Z_INDEX.guide,
   pointerEvents: 'all'
 }
 

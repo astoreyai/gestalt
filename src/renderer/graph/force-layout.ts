@@ -86,6 +86,15 @@ function createPositionExtractor() {
   }
 }
 
+// ─── Constants ──────────────────────────────────────────────────────
+
+/** Hard cap on simulation iterations to prevent infinite loops */
+const MAX_ITERATIONS = 300
+
+/** If alpha change is below this threshold for STALL_WINDOW consecutive ticks, stop early */
+const STALL_THRESHOLD = 0.001
+const STALL_WINDOW = 5
+
 // ─── Factory ────────────────────────────────────────────────────────
 
 /**
@@ -130,15 +139,47 @@ export function createForceSimulation(config: SimulationConfig): ForceSimulation
 
   const extractPositions = createPositionExtractor()
   let stopped = false
+  let iteration = 0
+  let prevAlpha = 1
+  let stallCount = 0
 
   return {
     tick(): SimulationResult {
       if (stopped) {
         return { positions: extractPositions(simNodes), alpha: 0, done: true }
       }
+
       sim.tick()
+      iteration++
       const alpha = sim.alpha()
-      const done = alpha <= sim.alphaMin()
+
+      // Primary exit: alpha below alphaMin (d3 default convergence)
+      let done = alpha <= sim.alphaMin()
+
+      // Secondary exit: hard cap on iterations to prevent infinite loops
+      if (!done && iteration >= MAX_ITERATIONS) {
+        done = true
+      }
+
+      // Tertiary exit: stall detection — alpha barely changing
+      if (!done) {
+        const alphaChange = Math.abs(prevAlpha - alpha)
+        if (alphaChange < STALL_THRESHOLD) {
+          stallCount++
+          if (stallCount >= STALL_WINDOW) {
+            done = true
+          }
+        } else {
+          stallCount = 0
+        }
+      }
+      prevAlpha = alpha
+
+      if (done) {
+        sim.stop()
+        stopped = true
+      }
+
       return { positions: extractPositions(simNodes), alpha, done }
     },
     stop(): void {

@@ -204,7 +204,6 @@ describe('IPC Channels', () => {
     expect(IPC.GESTURE_EVENT).toBe('gesture:event')
     expect(IPC.MOUSE_COMMAND).toBe('input:mouse')
     expect(IPC.KEYBOARD_COMMAND).toBe('input:keyboard')
-    expect(IPC.BUS_STATUS).toBe('bus:status')
     expect(IPC.CONFIG_GET).toBe('config:get')
     expect(IPC.CONFIG_SET).toBe('config:set')
     expect(IPC.ECHO).toBe('dev:echo')

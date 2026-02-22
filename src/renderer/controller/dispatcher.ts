@@ -23,6 +23,7 @@ export interface SceneAction {
     | 'inspect' | 'scale_node' | 'measure'
     | 'fold' | 'unfold'
     | 'undo'
+    | 'toggle_info' | 'toggle_legend' | 'context_menu' | 'reset_view'
   params: Record<string, number | string | null>
   hand?: 'left' | 'right'
 }
@@ -146,6 +147,21 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
       }
       return NOOP_ACTION
 
+    case GestureType.Fist:
+      if (gesture.phase === GesturePhase.Onset) {
+        return {
+          type: 'context_menu',
+          params: { x: gesture.position.x, y: gesture.position.y }
+        }
+      }
+      return NOOP_ACTION
+
+    case GestureType.LShape:
+      if (gesture.phase === GesturePhase.Onset) {
+        return { type: 'toggle_info', params: {} }
+      }
+      return NOOP_ACTION
+
     default:
       return NOOP_ACTION
   }
@@ -259,6 +275,18 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
           type: 'rotate',
           params: { angle: gesture.data?.rotation ?? 0, axis: 'y' }
         }
+      }
+      return NOOP_ACTION
+
+    case GestureType.Fist:
+      if (gesture.phase === GesturePhase.Onset) {
+        return { type: 'reset_view', params: {} }
+      }
+      return NOOP_ACTION
+
+    case GestureType.LShape:
+      if (gesture.phase === GesturePhase.Onset) {
+        return { type: 'toggle_legend', params: {} }
       }
       return NOOP_ACTION
 
