@@ -92,7 +92,8 @@ class JsonStore<T extends object> {
 
   private save(): void {
     const tempPath = `${this.filePath}.tmp`
-    writeFileSync(tempPath, JSON.stringify(this.data, null, 2), { mode: 0o600 })
+    // Compact JSON (no formatting) — ~3x smaller than pretty-printed
+    writeFileSync(tempPath, JSON.stringify(this.data), { mode: 0o600 })
     renameSync(tempPath, this.filePath)
   }
 }

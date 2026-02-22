@@ -59,6 +59,8 @@ export interface GestureConfig {
   dollySpeed: number
   /** Multiplier for orbit camera movement speed */
   orbitSpeed: number
+  /** Hysteresis margin for threshold comparisons (prevents boundary flickering). Default: 0.04 */
+  hysteresisMargin: number
 }
 
 /** Sensible default gesture configuration */
@@ -74,5 +76,6 @@ export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   twoHandOnsetGrace: 100,
   dollyZThreshold: 0.02,
   dollySpeed: 1.0,
-  orbitSpeed: 1.0
+  orbitSpeed: 1.0,
+  hysteresisMargin: 0.04
 }

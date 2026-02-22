@@ -9,6 +9,13 @@
 import type { Landmark } from '@shared/protocol'
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
 
+// Pre-allocated output buffers (one per hand) to avoid per-frame Array.from()
+const _normalizePool: Landmark[][] = [
+  Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 })),
+  Array.from({ length: 21 }, () => ({ x: 0, y: 0, z: 0 }))
+]
+let _normalizePoolIdx = 0
+
 /**
  * Convert raw MediaPipe landmarks to normalized [0,1] screen coordinates.
  *
@@ -16,6 +23,8 @@ import type { NormalizedLandmark } from '@mediapipe/tasks-vision'
  * - Clamps x and y to [0, 1].
  * - Normalizes z relative to the wrist (index 0) depth so wrist z = 0,
  *   and values closer to the camera are negative.
+ *
+ * Returns a pooled array — callers must consume within the same tick.
  *
  * @param rawLandmarks  The 21 NormalizedLandmark values from MediaPipe (already in [0,1] for x,y).
  * @param _imageWidth   Image width in pixels (reserved for future use).
@@ -32,17 +41,21 @@ export function normalizeLandmarks(
   }
 
   const wristZ = rawLandmarks[0]?.z ?? 0
+  const out = _normalizePool[_normalizePoolIdx++ & 1]
 
-  // Pad to 21 landmarks if fewer received
-  return Array.from({ length: 21 }, (_, i) => {
+  for (let i = 0; i < 21; i++) {
     const raw = rawLandmarks[i]
-    if (!raw) return { x: 0.5, y: 0.5, z: 0 } // Center default
-    return {
-      x: clamp(1.0 - raw.x, 0, 1), // mirror x-axis
-      y: clamp(raw.y, 0, 1),
-      z: raw.z - wristZ // depth relative to wrist
+    const dst = out[i]
+    if (!raw) {
+      dst.x = 0.5; dst.y = 0.5; dst.z = 0
+    } else {
+      dst.x = clamp(1.0 - raw.x, 0, 1)
+      dst.y = clamp(raw.y, 0, 1)
+      dst.z = raw.z - wristZ
     }
-  })
+  }
+
+  return out
 }
 
 /**

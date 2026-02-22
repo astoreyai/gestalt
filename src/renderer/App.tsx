@@ -559,7 +559,8 @@ export function App(): React.ReactElement {
         camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
         frameloop="always"
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        dpr={Math.min(window.devicePixelRatio, 2)}
+        gl={{ antialias: true, powerPreference: 'high-performance', stencil: false, alpha: false }}
       >
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 10, 5]} intensity={0.8} />

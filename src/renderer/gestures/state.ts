@@ -221,11 +221,17 @@ export class GestureEngine {
     return this.stateMachineGrid[handIndex(hand)][GESTURE_INDEX[gestureType]]
   }
 
-  /** Compute hand orientation angle for twist detection */
+  /** Compute hand orientation angle for twist detection using multiple landmarks for robustness */
   private computeHandAngle(hand: Hand): number {
     const wrist = hand.landmarks[LANDMARK.WRIST]
-    const middleMcp = hand.landmarks[LANDMARK.MIDDLE_MCP]
-    return Math.atan2(middleMcp.y - wrist.y, middleMcp.x - wrist.x)
+    // Average angle from 3 MCP joints for noise-robust rotation estimate
+    let sumAngle = 0
+    const mcps = [LANDMARK.INDEX_MCP, LANDMARK.MIDDLE_MCP, LANDMARK.RING_MCP]
+    for (const idx of mcps) {
+      const lm = hand.landmarks[idx]
+      sumAngle += Math.atan2(lm.y - wrist.y, lm.x - wrist.x)
+    }
+    return sumAngle / mcps.length
   }
 
   /** Detect twist gesture based on hand rotation over time */
@@ -262,6 +268,9 @@ export class GestureEngine {
       rotation
     }
   }
+
+  /** Tracks previous classification per hand for hysteresis */
+  private _lastClassification: [GestureType | null, GestureType | null] = [null, null]
 
   /** Pre-allocated position objects for handCenter to avoid per-call allocation */
   private readonly _handCenterLeft = { x: 0, y: 0, z: 0 }
@@ -317,8 +326,10 @@ export class GestureEngine {
 
     // ─── Single-hand gestures ─────────────────────────────────
     for (const hand of hands) {
-      // Classify the primary gesture for this hand
-      const classification = classifyGesture(hand, effectiveConfig)
+      // Classify the primary gesture for this hand (with hysteresis from previous frame)
+      const hIdx = handIndex(hand.handedness)
+      const classification = classifyGesture(hand, effectiveConfig, this._lastClassification[hIdx])
+      this._lastClassification[hIdx] = classification?.type ?? null
 
       // Also check for twist independently
       const twist = this.detectTwist(hand, timestamp)

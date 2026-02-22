@@ -154,10 +154,11 @@ function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
     out.z = (pWl.z + sWl.z) / 2
   }
 
+  // Return pooled references directly — consumers process synchronously within the same tick
   return {
     handedness: primary.handedness,
-    landmarks: fusedLandmarks.slice(0, landmarkCount),
-    worldLandmarks: fusedWorldLandmarks.slice(0, worldCount),
+    landmarks: fusedLandmarks,
+    worldLandmarks: fusedWorldLandmarks,
     score: Math.max(primary.score, secondary.score)
   }
 }

@@ -82,22 +82,30 @@ function setupIpcHandlers(): void {
     return `Echo: ${msg}`
   })
 
-  // Landmark frames from renderer tracking
+  // Landmark frames from renderer tracking (gated logging to avoid console spam)
+  let landmarkWarnCount = 0
   ipcMain.on(IPC.LANDMARK_FRAME, (_event, frame: LandmarkFrame) => {
     const parsed = LandmarkFrameSchema.safeParse(frame)
     if (!parsed.success) {
-      console.warn('[Main] Invalid LandmarkFrame, dropping:', parsed.error.message)
+      landmarkWarnCount++
+      if (landmarkWarnCount <= 3 || landmarkWarnCount % 100 === 0) {
+        console.warn(`[Main] Invalid LandmarkFrame (total: ${landmarkWarnCount}):`, parsed.error.message)
+      }
       return
     }
     // Forward to bus, input modules when they're ready
     void parsed.data // Placeholder
   })
 
-  // Gesture events from renderer
+  // Gesture events from renderer (gated logging to avoid console spam)
+  let gestureWarnCount = 0
   ipcMain.on(IPC.GESTURE_EVENT, (_event, gesture: GestureEvent) => {
     const parsed = GestureEventSchema.safeParse(gesture)
     if (!parsed.success) {
-      console.warn('[Main] Invalid GestureEvent, dropping:', parsed.error.message)
+      gestureWarnCount++
+      if (gestureWarnCount <= 3 || gestureWarnCount % 100 === 0) {
+        console.warn(`[Main] Invalid GestureEvent (total: ${gestureWarnCount}):`, parsed.error.message)
+      }
       return
     }
     // Forward to input modules and bus when they're ready
