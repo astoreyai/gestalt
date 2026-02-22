@@ -61,6 +61,10 @@ export const Nodes = React.memo(function Nodes({
 }: NodesProps): React.ReactElement | null {
   const meshRef = useRef<InstancedMeshType>(null)
   const prevLodRef = useRef<LODLevel>('full')
+  /** Track last positions map reference to skip redundant GPU uploads */
+  const prevPositionsRef = useRef<Map<string, NodePosition> | null>(null)
+  const prevSelectedRef = useRef<string | null | undefined>(null)
+  const prevHoveredRef = useRef<string | null | undefined>(null)
 
   // Build an index map: instance index -> node id
   const nodeIndexMap = useMemo(() => {
@@ -139,8 +143,16 @@ export const Nodes = React.memo(function Nodes({
     const cameraDistance = camera.position.length()
     const lod = calculateLOD(nodes.length, cameraDistance)
 
+    // Track what changed for dirty-flag skip
+    const positionsChanged = positions !== prevPositionsRef.current
+    const selectionChanged = selectedId !== prevSelectedRef.current || hoveredId !== prevHoveredRef.current
+    const lodChanged = lod !== prevLodRef.current
+    prevPositionsRef.current = positions
+    prevSelectedRef.current = selectedId
+    prevHoveredRef.current = hoveredId
+
     // Swap geometry when LOD level changes (P1-19)
-    if (lod !== prevLodRef.current) {
+    if (lodChanged) {
       prevLodRef.current = lod
       if (lod === 'culled') {
         mesh.visible = false
@@ -164,6 +176,9 @@ export const Nodes = React.memo(function Nodes({
       return
     }
     mesh.visible = true
+
+    // Skip matrix/color updates if nothing changed (LOD swap still handled above)
+    if (!positionsChanged && !selectionChanged && !lodChanged) return
 
     for (let i = 0; i < nodes.length; i++) {
       const node = nodes[i]

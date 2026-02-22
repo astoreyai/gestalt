@@ -31,6 +31,9 @@ export function distanceSquared(a: Landmark, b: Landmark): number {
   return dx * dx + dy * dy + dz * dz
 }
 
+/** Precomputed constant: 1/PI for fingerCurl angle normalization */
+const INV_PI = 1 / Math.PI
+
 // Pre-allocated vectors for angleBetween to avoid per-call object allocation
 const _ba = { x: 0, y: 0, z: 0 }
 const _bc = { x: 0, y: 0, z: 0 }
@@ -117,7 +120,7 @@ export function fingerCurl(landmarks: Landmark[], finger: FingerName): number {
   const angle1 = angleBetween(mcp, pip, dip)
   const angle2 = angleBetween(pip, dip, tip)
   const avgAngle = (angle1 + angle2) / 2
-  const angleCurl = Math.max(0, Math.min(1, 1 - avgAngle / Math.PI))
+  const angleCurl = Math.max(0, Math.min(1, 1 - avgAngle * INV_PI))
 
   // Distance-based curl: how close is the tip to the MCP relative to finger length?
   // Extended finger: tip far from MCP. Curled: tip close to MCP.
@@ -207,6 +210,23 @@ export function analyzeHandPose(
   }
 }
 
+/**
+ * Compute hand flatness only — lightweight alternative to analyzeHandPose
+ * when only flatness is needed (e.g. FlatDrag detection in classifyGesture).
+ */
+export function computeHandFlatness(landmarks: Landmark[]): number {
+  const wristZ = landmarks[LANDMARK.WRIST].z
+  const tipIndices = [
+    LANDMARK.THUMB_TIP, LANDMARK.INDEX_TIP, LANDMARK.MIDDLE_TIP,
+    LANDMARK.RING_TIP, LANDMARK.PINKY_TIP
+  ]
+  let sumZDiff = 0
+  for (const i of tipIndices) {
+    sumZDiff += Math.abs(landmarks[i].z - wristZ)
+  }
+  return Math.max(0, Math.min(1, 1 - (sumZDiff / tipIndices.length) * 10))
+}
+
 // ─── Gesture Detection Functions ────────────────────────────────────
 
 /**
@@ -220,17 +240,18 @@ export function detectPinch(
 ): { detected: boolean; distance: number } {
   const thumbTip = hand.landmarks[LANDMARK.THUMB_TIP]
   const indexTip = hand.landmarks[LANDMARK.INDEX_TIP]
-  const rawDist = Math.sqrt(distanceSquared(thumbTip, indexTip))
+  const rawDistSq = distanceSquared(thumbTip, indexTip)
 
-  // Normalize by palm size for hand-size invariance
-  const palmDist = distance(hand.landmarks[LANDMARK.WRIST], hand.landmarks[LANDMARK.MIDDLE_MCP])
-  const palmNorm = Math.max(palmDist, 0.001)
-  const normalizedDist = rawDist / palmNorm
+  // Normalize by palm size for hand-size invariance (compare squared to avoid sqrt when possible)
+  const palmDistSq = distanceSquared(hand.landmarks[LANDMARK.WRIST], hand.landmarks[LANDMARK.MIDDLE_MCP])
+  const palmNormSq = Math.max(palmDistSq, 0.000001)
+  // Compare squared: rawDistSq / palmNormSq < threshold^2
+  const thresholdSq = config.pinchThreshold * config.pinchThreshold
+  const detected = rawDistSq / palmNormSq < thresholdSq
+  // Only compute sqrt for the distance value (needed for confidence)
+  const normalizedDist = Math.sqrt(rawDistSq / palmNormSq)
 
-  return {
-    detected: normalizedDist < config.pinchThreshold,
-    distance: normalizedDist
-  }
+  return { detected, distance: normalizedDist }
 }
 
 /**
@@ -309,9 +330,11 @@ export function detectFlatDrag(
   const c = curls ?? { thumb: fingerCurl(lm, 'thumb'), index: fingerCurl(lm, 'index'), middle: fingerCurl(lm, 'middle'), ring: fingerCurl(lm, 'ring'), pinky: fingerCurl(lm, 'pinky') }
   const allExtended = FINGER_NAMES.every((name) => c[name] < config.extensionThreshold)
   if (!allExtended) return false
-  const pose = analyzeHandPose(lm, config)
-  return pose.handFlatness > 0.7
+  return computeHandFlatness(lm) > 0.7
 }
+
+// Pre-allocated curls object reused by classifyGesture to avoid per-call allocation
+const _curls: Record<FingerName, number> = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 }
 
 // ─── Main Classifier ────────────────────────────────────────────────
 
@@ -333,7 +356,8 @@ export function detectFlatDrag(
 export function classifyGesture(
   hand: Hand,
   config: GestureConfig = DEFAULT_GESTURE_CONFIG,
-  previousType?: GestureType | null
+  previousType?: GestureType | null,
+  cachedPinch?: { detected: boolean; distance: number }
 ): { type: GestureType; confidence: number } | null {
   if (hand.score < config.minConfidence) {
     return null
@@ -342,15 +366,13 @@ export function classifyGesture(
   const lm = hand.landmarks
   const hm = config.hysteresisMargin ?? 0.04
 
-  // P2-48: Pre-compute all 5 finger curls once to avoid redundant
-  // recomputation across multiple detect* calls.
-  const curls: Record<FingerName, number> = {
-    thumb: fingerCurl(lm, 'thumb'),
-    index: fingerCurl(lm, 'index'),
-    middle: fingerCurl(lm, 'middle'),
-    ring: fingerCurl(lm, 'ring'),
-    pinky: fingerCurl(lm, 'pinky')
-  }
+  // P2-48: Pre-compute all 5 finger curls once, reusing module-level buffer
+  const curls = _curls
+  curls.thumb = fingerCurl(lm, 'thumb')
+  curls.index = fingerCurl(lm, 'index')
+  curls.middle = fingerCurl(lm, 'middle')
+  curls.ring = fingerCurl(lm, 'ring')
+  curls.pinky = fingerCurl(lm, 'pinky')
 
   // Hysteresis: if the previous classification matches the current candidate,
   // apply a margin bonus (lower curl threshold, higher pinch threshold) so
@@ -369,7 +391,10 @@ export function classifyGesture(
     && curls.middle > fistCurlThr
     && curls.ring > fistCurlThr
     && curls.pinky > fistCurlThr
-  const thumbCurledForFist = curls.thumb > 0.08
+  // Thumb curl threshold scales with palm size — smaller hands report even lower thumb curl
+  const palmDist = distance(lm[LANDMARK.WRIST], lm[LANDMARK.MIDDLE_MCP])
+  const thumbFistThr = Math.max(0.04, 0.08 * Math.min(1, palmDist / 0.15))
+  const thumbCurledForFist = curls.thumb > thumbFistThr
   if (fourFingersCurled && thumbCurledForFist) {
     const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
     return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) }
@@ -381,7 +406,10 @@ export function classifyGesture(
   const pinchThr = previousType === GestureType.Pinch
     ? config.pinchThreshold + hm
     : config.pinchThreshold
-  const pinch = detectPinch(hand, { ...config, pinchThreshold: pinchThr })
+  // Use cached pinch if available and threshold matches; otherwise recompute
+  const pinch = cachedPinch && pinchThr === config.pinchThreshold
+    ? cachedPinch
+    : detectPinch(hand, { ...config, pinchThreshold: pinchThr })
   if (pinch.detected) {
     const confidence = Math.max(0.3, Math.min(1, 1 - pinch.distance / pinchThr))
     return { type: GestureType.Pinch, confidence }
@@ -423,14 +451,19 @@ export function classifyGesture(
   const allExtended = FINGER_NAMES.every((name) => curls[name] < palmExtThr)
 
   if (allExtended) {
-    const pose = analyzeHandPose(lm, config)
+    // Use lightweight flatness check instead of full analyzeHandPose
+    const flatness = computeHandFlatness(lm)
     // Check flat drag — all extended + flat (hysteresis: 0.70 to enter, 0.65 to exit)
     const flatThreshold = previousType === GestureType.FlatDrag ? 0.65 : 0.70
-    if (pose.handFlatness > flatThreshold) {
-      return { type: GestureType.FlatDrag, confidence: pose.handFlatness }
+    if (flatness > flatThreshold) {
+      return { type: GestureType.FlatDrag, confidence: flatness }
     }
     // Check open palm — all extended (least specific)
-    return { type: GestureType.OpenPalm, confidence: pose.palmOpenness }
+    let extSum = 0
+    for (const name of FINGER_NAMES) {
+      if (curls[name] < palmExtThr) extSum++
+    }
+    return { type: GestureType.OpenPalm, confidence: extSum / 5 }
   }
 
   return null

@@ -56,6 +56,10 @@ export const Edges = React.memo(function Edges({
     }
   }, [edges.length])
 
+  /** Track last positions/selection for dirty-flag skip */
+  const prevPositionsRef = useRef<Map<string, NodePosition> | null>(null)
+  const prevSelectedRef = useRef<string | null | undefined>(null)
+
   // Dispose geometry and material on unmount (P0-5)
   useEffect(() => {
     return () => {
@@ -75,6 +79,11 @@ export const Edges = React.memo(function Edges({
   useFrame(() => {
     const line = lineRef.current
     if (!line || edges.length === 0) return
+
+    // Dirty-flag: skip GPU upload if positions and selection haven't changed
+    if (positions === prevPositionsRef.current && selectedId === prevSelectedRef.current) return
+    prevPositionsRef.current = positions
+    prevSelectedRef.current = selectedId
 
     const geom = line.geometry
     let anyUpdate = false
