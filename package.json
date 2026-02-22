@@ -70,9 +70,14 @@
       "category": "Science"
     },
     "files": [
-      "dist/**/*",
-      "native/build/Release/**/*",
-      "assets/**/*"
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
+      "native/build/Release/tracking_input.node",
+      "!**/node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "native/**/*.node"
     ],
     "extraResources": [
       {
@@ -80,11 +85,12 @@
         "to": "samples"
       }
     ],
+    "electronLanguages": ["en-US"],
     "publish": [
       {
         "provider": "github",
         "owner": "astoreyai",
-        "repo": "tracking"
+        "repo": "gestalt"
       }
     ]
   }
