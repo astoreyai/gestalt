@@ -103,9 +103,11 @@ function makePointLandmarks(): Landmark[] {
   lm[LANDMARK.PINKY_DIP] = { x: 0.62, y: 0.53, z: 0.01 }
   lm[LANDMARK.PINKY_TIP] = { x: 0.62, y: 0.49, z: 0.02 }
 
-  // Thumb: CMC=(0.42,0.65,-0.01) MCP=(0.38,0.58,-0.02) → zigzag back
-  lm[LANDMARK.THUMB_IP] = { x: 0.41, y: 0.62, z: 0.00 }
-  lm[LANDMARK.THUMB_TIP] = { x: 0.39, y: 0.58, z: 0.01 }
+  // Thumb: curl across palm toward palm center (midpoint of index MCP & middle MCP).
+  // Palm center ≈ (0.47, 0.54, 0). Bring thumb tip close to that region.
+  // IP bends sharply inward, tip reaches toward palm center.
+  lm[LANDMARK.THUMB_IP] = { x: 0.40, y: 0.58, z: 0.01 }
+  lm[LANDMARK.THUMB_TIP] = { x: 0.45, y: 0.55, z: 0.02 }
 
   return lm
 }
@@ -131,9 +133,10 @@ function makeFistLandmarks(): Landmark[] {
   lm[LANDMARK.PINKY_DIP] = { x: 0.62, y: 0.53, z: 0.01 }
   lm[LANDMARK.PINKY_TIP] = { x: 0.62, y: 0.49, z: 0.02 }
 
-  // Thumb: CMC=(0.42,0.65,-0.01) MCP=(0.38,0.58,-0.02) → zigzag back
-  lm[LANDMARK.THUMB_IP] = { x: 0.41, y: 0.62, z: 0.00 }
-  lm[LANDMARK.THUMB_TIP] = { x: 0.39, y: 0.58, z: 0.01 }
+  // Thumb: curl tightly across palm toward palm center ≈ (0.47, 0.54, 0).
+  // For a fist, the thumb wraps over the curled fingers.
+  lm[LANDMARK.THUMB_IP] = { x: 0.42, y: 0.58, z: 0.01 }
+  lm[LANDMARK.THUMB_TIP] = { x: 0.46, y: 0.54, z: 0.02 }
 
   return lm
 }

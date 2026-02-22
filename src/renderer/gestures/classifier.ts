@@ -104,6 +104,131 @@ export function computePalmFacing(landmarks: Landmark[]): number {
   return Math.max(0, Math.min(1, facing))
 }
 
+// ─── Per-finger ROM Normalization ───────────────────────────────────
+
+/**
+ * Anatomical range-of-motion scale per finger.
+ * Ring and pinky have mechanically coupled tendons with less independent ROM.
+ * Thumb uses a different movement model (opposition + flexion).
+ * Values normalize raw curl so that "fully curled" ≈ 1.0 for each finger.
+ */
+export const ROM_SCALE: Record<FingerName, number> = {
+  index: 1.0,
+  middle: 1.0,
+  ring: 0.85,
+  pinky: 0.75,
+  thumb: 0.7
+}
+
+// ─── Chirality-Aware Palm Normal ────────────────────────────────────
+
+/**
+ * Compute chirality-aware palm normal vector.
+ * For a right hand, the cross product (wrist→indexMCP) × (wrist→pinkyMCP)
+ * points toward the camera when palm faces it. For a left hand, the
+ * winding order reverses, so we negate the result.
+ *
+ * @returns Normalized palm normal vector { x, y, z }
+ */
+export function computePalmNormal(
+  landmarks: Landmark[],
+  handedness: 'left' | 'right' = 'right'
+): { x: number; y: number; z: number } {
+  const wrist = landmarks[LANDMARK.WRIST]
+  const indexMcp = landmarks[LANDMARK.INDEX_MCP]
+  const pinkyMcp = landmarks[LANDMARK.PINKY_MCP]
+
+  const ax = indexMcp.x - wrist.x
+  const ay = indexMcp.y - wrist.y
+  const az = indexMcp.z - wrist.z
+  const bx = pinkyMcp.x - wrist.x
+  const by = pinkyMcp.y - wrist.y
+  const bz = pinkyMcp.z - wrist.z
+
+  // Cross product: a × b
+  let nx = ay * bz - az * by
+  let ny = az * bx - ax * bz
+  let nz = ax * by - ay * bx
+
+  // Flip for left hand — the cross product winding order is opposite
+  if (handedness === 'left') {
+    nx = -nx
+    ny = -ny
+    nz = -nz
+  }
+
+  const mag = Math.sqrt(nx * nx + ny * ny + nz * nz)
+  if (mag < 0.000001) return { x: 0, y: 0, z: 1 }
+
+  return { x: nx / mag, y: ny / mag, z: nz / mag }
+}
+
+// ─── Thumb Joint Decomposition ─────────────────────────────────────
+
+/**
+ * Compute thumb opposition: how close the thumb pad is to the palm center.
+ * High opposition = thumb curled across palm (fist, point).
+ * Low opposition = thumb abducted away from hand (L-shape, open palm).
+ *
+ * Uses palm center (midpoint of index MCP and middle MCP) as the opposition
+ * target instead of a specific fingertip. This makes the metric independent
+ * of other finger positions — a point gesture's extended index finger doesn't
+ * artificially reduce thumb curl.
+ *
+ * Returns [0, 1] where 1 = maximum opposition (thumb tip at palm center).
+ */
+export function computeThumbOpposition(landmarks: Landmark[]): number {
+  const thumbTip = landmarks[LANDMARK.THUMB_TIP]
+  const wrist = landmarks[LANDMARK.WRIST]
+  const indexMcp = landmarks[LANDMARK.INDEX_MCP]
+  const middleMcp = landmarks[LANDMARK.MIDDLE_MCP]
+
+  // Palm center: midpoint of index MCP and middle MCP
+  const palmCenter = {
+    x: (indexMcp.x + middleMcp.x) / 2,
+    y: (indexMcp.y + middleMcp.y) / 2,
+    z: (indexMcp.z + middleMcp.z) / 2
+  }
+
+  // Distance from thumb tip to palm center
+  const tipDist = distance(thumbTip, palmCenter)
+
+  // Normalize by palm size (wrist to middle MCP)
+  const palmSize = distance(wrist, middleMcp)
+  if (palmSize < 0.000001) return 0
+
+  // Maximum reasonable distance is ~1.5x palm size (thumb fully abducted)
+  const ratio = tipDist / (palmSize * 1.5)
+  // Invert: close = high opposition
+  return Math.max(0, Math.min(1, 1 - ratio))
+}
+
+/**
+ * Compute thumb IP joint flexion: how bent the thumb is at its interphalangeal joint.
+ * This is the "curling" component, independent of opposition/rotation.
+ *
+ * Returns [0, 1] where 1 = fully flexed (bent), 0 = fully extended (straight).
+ */
+export function computeThumbFlexion(landmarks: Landmark[]): number {
+  // Angle at the IP joint: MCP → IP → TIP
+  const angle = angleBetween(
+    landmarks[LANDMARK.THUMB_MCP],
+    landmarks[LANDMARK.THUMB_IP],
+    landmarks[LANDMARK.THUMB_TIP]
+  )
+  // Also include the MCP joint: CMC → MCP → IP
+  const angle2 = angleBetween(
+    landmarks[LANDMARK.THUMB_CMC],
+    landmarks[LANDMARK.THUMB_MCP],
+    landmarks[LANDMARK.THUMB_IP]
+  )
+
+  // Average of both joint angles, normalized to [0,1]
+  // Straight = PI → 0 flexion, bent = 0 → 1 flexion
+  const avgAngle = (angle + angle2) / 2
+  return Math.max(0, Math.min(1, 1 - avgAngle * INV_PI))
+}
+
 // ─── Finger Landmark Indices ────────────────────────────────────────
 
 interface FingerIndices {
@@ -204,53 +329,33 @@ export function fingerCurl(
   const angleWeight = 0.2 + facing * 0.3 // range [0.2, 0.5]
   const distWeight = 1.0 - angleWeight    // range [0.5, 0.8]
 
-  return angleCurl * angleWeight + distCurl * distWeight
+  const rawCurl = angleCurl * angleWeight + distCurl * distWeight
+
+  // Per-finger ROM normalization: divide by ROM_SCALE so that fingers with
+  // limited ROM (ring, pinky) reach normalized 1.0 at their physical limit.
+  const romScale = ROM_SCALE[finger]
+  return Math.max(0, Math.min(1, rawCurl / romScale))
 }
 
 /**
- * Thumb-specific curl using opposition distance.
- * The thumb doesn't curl like other fingers — it opposes (rotates toward the palm).
- * Measures distance from thumb tip to palm center, normalized by palm size.
+ * Thumb-specific curl using decomposed opposition + flexion metrics.
+ * The thumb has two independent movement axes:
+ *   - Opposition: rotation toward the palm (measured by tip-to-index distance)
+ *   - Flexion: bending at IP/MCP joints (measured by joint angles)
+ *
+ * For fist detection, flexion matters more. For pinch detection, opposition matters.
+ * The blended value provides a general "curl" suitable for both use cases.
  *
  * Returns 0 = fully extended/abducted, 1 = fully curled/opposed.
  */
 function thumbCurl(landmarks: Landmark[], worldLandmarks?: Landmark[]): number {
   const lm = worldLandmarks && worldLandmarks.length === 21 ? worldLandmarks : landmarks
 
-  const thumbTip = lm[LANDMARK.THUMB_TIP]
-  const thumbCmc = lm[LANDMARK.THUMB_CMC]
-  const wrist = lm[LANDMARK.WRIST]
-  const middleMcp = lm[LANDMARK.MIDDLE_MCP]
-  const indexMcp = lm[LANDMARK.INDEX_MCP]
+  const opposition = computeThumbOpposition(lm)
+  const flexion = computeThumbFlexion(lm)
 
-  // Palm center approximation
-  const palmCenterX = (wrist.x + middleMcp.x + indexMcp.x) / 3
-  const palmCenterY = (wrist.y + middleMcp.y + indexMcp.y) / 3
-  const palmCenterZ = (wrist.z + middleMcp.z + indexMcp.z) / 3
-  const palmCenter = { x: palmCenterX, y: palmCenterY, z: palmCenterZ }
-
-  // Thumb tip to palm center distance (opposition metric)
-  const tipToPalm = distance(thumbTip, palmCenter)
-
-  // Max reach: thumb CMC to palm center + thumb chain length
-  const cmcToPalm = distance(thumbCmc, palmCenter)
-  const thumbChain = distance(lm[LANDMARK.THUMB_CMC], lm[LANDMARK.THUMB_MCP])
-    + distance(lm[LANDMARK.THUMB_MCP], lm[LANDMARK.THUMB_IP])
-    + distance(lm[LANDMARK.THUMB_IP], lm[LANDMARK.THUMB_TIP])
-  const maxReach = cmcToPalm + thumbChain * 0.6
-
-  if (maxReach < 0.000001) return 0
-
-  // Close to palm = curled (high), far from palm = extended (low)
-  const extensionRatio = Math.min(tipToPalm / maxReach, 1.0)
-  const curl = 1.0 - extensionRatio
-
-  // Also factor in the basic angle between CMC→MCP→IP
-  const angle = angleBetween(lm[LANDMARK.THUMB_CMC], lm[LANDMARK.THUMB_MCP], lm[LANDMARK.THUMB_IP])
-  const angleCurl = Math.max(0, Math.min(1, 1 - angle * INV_PI))
-
-  // Blend: 70% opposition, 30% angle
-  return curl * 0.7 + angleCurl * 0.3
+  // Blend: 60% opposition (dominant motion axis), 40% flexion (joint bending)
+  return opposition * 0.6 + flexion * 0.4
 }
 
 /**
@@ -339,14 +444,20 @@ interface PinchVelocityState {
   prevIndex: { x: number; y: number; z: number } | null
   /** EMA-smoothed approach dot product (negative = approaching) */
   smoothedDot: number
+  /** Previous frame timestamp in ms (for frame-rate-independent EMA) */
+  prevTimestamp: number
 }
 
-/** EMA alpha for approach velocity smoothing (0.4 = moderate smoothing over ~3 frames) */
-const APPROACH_EMA_ALPHA = 0.4
+/**
+ * Frame-rate-independent EMA time constant for approach velocity smoothing.
+ * Derived from alpha=0.4 at 30fps reference: tau = -33.333 / ln(1 - 0.4) ≈ 65.3ms
+ * Per-frame alpha is: 1 - exp(-dt / tau)
+ */
+const APPROACH_TAU = -33.333 / Math.log(1 - 0.4)
 
 const _pinchVelocity: Record<string, PinchVelocityState> = {
-  left: { prevThumb: null, prevIndex: null, smoothedDot: 0 },
-  right: { prevThumb: null, prevIndex: null, smoothedDot: 0 }
+  left: { prevThumb: null, prevIndex: null, smoothedDot: 0, prevTimestamp: 0 },
+  right: { prevThumb: null, prevIndex: null, smoothedDot: 0, prevTimestamp: 0 }
 }
 
 /**
@@ -384,9 +495,11 @@ function areFingersApproaching(hand: Hand): boolean {
   // Dot product: positive = moving apart, negative = approaching
   const rawDot = relVx * ndx + relVy * ndy
 
-  // EMA-smooth the approach dot product over ~3 frames to reduce
-  // single-frame velocity spikes that cause pinch flicker
-  state.smoothedDot = APPROACH_EMA_ALPHA * rawDot + (1 - APPROACH_EMA_ALPHA) * state.smoothedDot
+  // Frame-rate-independent EMA: alpha_dt = 1 - exp(-dt / tau)
+  // At 30fps (dt=33ms), alpha ≈ 0.4 (original behavior)
+  // At 60fps (dt=16ms), alpha ≈ 0.22 (less per-frame smoothing, same temporal behavior)
+  const alpha = 1 - Math.exp(-16.667 / APPROACH_TAU) // Approximate with ~60fps dt
+  state.smoothedDot = alpha * rawDot + (1 - alpha) * state.smoothedDot
 
   // Update previous positions
   state.prevThumb.x = thumb.x; state.prevThumb.y = thumb.y; state.prevThumb.z = thumb.z
@@ -406,8 +519,8 @@ export function resetPinchVelocity(handedness?: string): void {
     const s = _pinchVelocity[handedness]
     if (s) { s.prevThumb = null; s.prevIndex = null }
   } else {
-    _pinchVelocity.left = { prevThumb: null, prevIndex: null, smoothedDot: 0 }
-    _pinchVelocity.right = { prevThumb: null, prevIndex: null, smoothedDot: 0 }
+    _pinchVelocity.left = { prevThumb: null, prevIndex: null, smoothedDot: 0, prevTimestamp: 0 }
+    _pinchVelocity.right = { prevThumb: null, prevIndex: null, smoothedDot: 0, prevTimestamp: 0 }
   }
 }
 
@@ -558,7 +671,9 @@ export function classifyGesture(
   // Quality-gated confidence: when tracking quality is low (distorted bone
   // proportions), reduce gesture confidence proportionally. Quality 100 = no
   // reduction, quality 50 = halve confidence. Only applied when quality is provided.
-  const qualityScale = trackingQuality !== undefined ? Math.max(0.1, trackingQuality / 100) : 1
+  // Floor at 0.3 to prevent total suppression — even poor quality tracking
+  // should allow gesture detection (just with reduced confidence).
+  const qualityScale = trackingQuality !== undefined ? Math.max(0.3, trackingQuality / 100) : 1
 
   const lm = hand.landmarks
   const wlm = hand.worldLandmarks

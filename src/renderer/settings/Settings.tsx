@@ -66,10 +66,12 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration, p
         </button>
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+      <div role="tablist" style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1,
@@ -148,6 +150,8 @@ function Toggle({ label, value, onChange }: {
     <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <span style={{ fontSize: 13, color: 'var(--button-text)' }}>{label}</span>
       <button
+        role="switch"
+        aria-checked={value}
         onClick={() => onChange(!value)}
         style={{
           width: 44, height: 24, borderRadius: 12, border: 'none',

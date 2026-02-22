@@ -57,11 +57,11 @@ describe('computeAdaptivePinchThreshold', () => {
 })
 
 describe('computeTremorParams', () => {
-  const BASE_CONFIG = { minHoldDuration: 40, pinchThreshold: 0.15 }
+  const BASE_CONFIG = { minHoldDuration: 80, pinchThreshold: 0.15 }
 
   it('tremorLevel 0 returns base config values', () => {
     const result = computeTremorParams(BASE_CONFIG, 0)
-    expect(result.minHoldDuration).toBe(40)
+    expect(result.minHoldDuration).toBe(80)
     expect(result.pinchThreshold).toBe(0.15)
     expect(result.deadzone).toBe(0)
   })
@@ -79,8 +79,8 @@ describe('computeTremorParams', () => {
 
   it('tremorLevel 0.5 gives intermediate values', () => {
     const result = computeTremorParams(BASE_CONFIG, 0.5)
-    // minHoldDuration: 40 + 0.5 * (200 - 40) = 40 + 80 = 120
-    expect(result.minHoldDuration).toBe(120)
+    // minHoldDuration: 80 + 0.5 * (200 - 80) = 80 + 60 = 140
+    expect(result.minHoldDuration).toBe(140)
     // pinchThreshold: 0.15 * (1 + 0.5 * 0.3) = 0.15 * 1.15 = 0.1725
     expect(result.pinchThreshold).toBeCloseTo(0.1725, 5)
     // deadzone: 0.5 * 0.02 = 0.01
@@ -97,7 +97,7 @@ describe('computeTremorParams', () => {
 
   it('clamps tremorLevel below 0 to 0', () => {
     const result = computeTremorParams(BASE_CONFIG, -0.5)
-    expect(result.minHoldDuration).toBe(40)
+    expect(result.minHoldDuration).toBe(80)
     expect(result.pinchThreshold).toBe(0.15)
     expect(result.deadzone).toBe(0)
   })

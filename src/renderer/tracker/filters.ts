@@ -11,7 +11,7 @@
  * Enhancements over vanilla implementation:
  *   - Per-joint filter tuning (wrist/palm vs fingertips)
  *   - Separate z-axis parameters (MediaPipe z is noisiest)
- *   - Z-axis median pre-filter (3-frame sliding window)
+ *   - X/Y/Z-axis median pre-filter (3-frame sliding window)
  */
 
 import { LANDMARK } from '@shared/protocol'
@@ -52,12 +52,12 @@ class LowPassFilter {
   }
 }
 
-// ─── Z-Axis Median Pre-Filter ────────────────────────────────────
+// ─── Median Pre-Filter ───────────────────────────────────────────
 
 /**
  * 3-frame sliding window median filter.
- * Rejects z-axis outliers before the One-Euro filter sees them.
- * MediaPipe z has frequent single-frame spikes that the One-Euro filter
+ * Rejects single-frame outlier spikes before the One-Euro filter sees them.
+ * MediaPipe has frequent single-frame spikes that the One-Euro filter
  * cannot fully reject without adding unacceptable lag.
  */
 class MedianFilter3 {
@@ -103,9 +103,10 @@ export interface OneEuroFilterConfig {
 
 const DEFAULT_MIN_CUTOFF = 1.0
 const DEFAULT_BETA = 0.03
-// dCutoff reduced from 1.0 to 0.4Hz: lower value applies more smoothing to
-// the derivative estimate, reducing noise-amplification at 60fps tracking rate
-const DEFAULT_D_CUTOFF = 0.4
+// dCutoff reduced from 1.0 to 0.3Hz: lower value applies more smoothing to
+// the derivative estimate, reducing noise-amplification at 60fps tracking rate.
+// Further reduced from 0.4 to 0.3 to prevent derivative over-sensitivity at high frame rates.
+const DEFAULT_D_CUTOFF = 0.3
 
 const TWO_PI = 2.0 * Math.PI
 
@@ -219,7 +220,13 @@ const PIP_CONFIG: PerAxisFilterConfig = {
   z:  { minCutoff: 1.5, beta: 0.02, dCutoff: 0.3 }
 }
 
-/** DIP + TIP joints (indices 4, 8, 12, 16, 20) — least smoothing */
+/** DIP joints (indices 4, 8, 12, 16, 20 minus tips) — noisiest mid-finger landmark */
+const DIP_CONFIG: PerAxisFilterConfig = {
+  xy: { minCutoff: 2.5, beta: 0.08, dCutoff: 0.4 },
+  z:  { minCutoff: 1.8, beta: 0.05, dCutoff: 0.3 }
+}
+
+/** TIP joints — least smoothing for responsive pinch/point detection */
 const TIP_CONFIG: PerAxisFilterConfig = {
   xy: { minCutoff: 3.0, beta: 0.10, dCutoff: 0.4 },
   z:  { minCutoff: 2.0, beta: 0.08, dCutoff: 0.3 }
@@ -238,33 +245,37 @@ JOINT_TIER[LANDMARK.THUMB_TIP] = TIP_CONFIG
 // Index chain
 JOINT_TIER[LANDMARK.INDEX_MCP] = ANCHOR_CONFIG
 JOINT_TIER[LANDMARK.INDEX_PIP] = PIP_CONFIG
-JOINT_TIER[LANDMARK.INDEX_DIP] = PIP_CONFIG
+JOINT_TIER[LANDMARK.INDEX_DIP] = DIP_CONFIG
 JOINT_TIER[LANDMARK.INDEX_TIP] = TIP_CONFIG
 // Middle chain
 JOINT_TIER[LANDMARK.MIDDLE_MCP] = ANCHOR_CONFIG
 JOINT_TIER[LANDMARK.MIDDLE_PIP] = PIP_CONFIG
-JOINT_TIER[LANDMARK.MIDDLE_DIP] = PIP_CONFIG
+JOINT_TIER[LANDMARK.MIDDLE_DIP] = DIP_CONFIG
 JOINT_TIER[LANDMARK.MIDDLE_TIP] = TIP_CONFIG
 // Ring chain
 JOINT_TIER[LANDMARK.RING_MCP] = ANCHOR_CONFIG
 JOINT_TIER[LANDMARK.RING_PIP] = PIP_CONFIG
-JOINT_TIER[LANDMARK.RING_DIP] = PIP_CONFIG
+JOINT_TIER[LANDMARK.RING_DIP] = DIP_CONFIG
 JOINT_TIER[LANDMARK.RING_TIP] = TIP_CONFIG
 // Pinky chain
 JOINT_TIER[LANDMARK.PINKY_MCP] = ANCHOR_CONFIG
 JOINT_TIER[LANDMARK.PINKY_PIP] = PIP_CONFIG
-JOINT_TIER[LANDMARK.PINKY_DIP] = PIP_CONFIG
+JOINT_TIER[LANDMARK.PINKY_DIP] = DIP_CONFIG
 JOINT_TIER[LANDMARK.PINKY_TIP] = TIP_CONFIG
 
 // ─── Landmark Smoother ───────────────────────────────────────────
 
 /**
  * Applies per-joint One-Euro filters with separate z-axis parameters
- * and z-median pre-filtering to every landmark in a 21-landmark hand.
+ * and median pre-filtering on all axes to every landmark in a 21-landmark hand.
  * Each hand should have its own instance.
  */
 export class LandmarkSmoother {
   private _filters: { x: OneEuroFilter; y: OneEuroFilter; z: OneEuroFilter }[]
+  /** X-axis median pre-filters — reject single-frame spikes before One-Euro */
+  private _xMedian: MedianFilter3[]
+  /** Y-axis median pre-filters — reject single-frame spikes before One-Euro */
+  private _yMedian: MedianFilter3[]
   /** Z-axis median pre-filters — reject single-frame spikes before One-Euro */
   private _zMedian: MedianFilter3[]
   /** Pre-allocated output array to avoid per-frame allocations (P2-46) */
@@ -305,6 +316,8 @@ export class LandmarkSmoother {
         z: new OneEuroFilter(_config)
       }
     })
+    this._xMedian = Array.from({ length: _numLandmarks }, () => new MedianFilter3())
+    this._yMedian = Array.from({ length: _numLandmarks }, () => new MedianFilter3())
     this._zMedian = Array.from({ length: _numLandmarks }, () => new MedianFilter3())
     this._outputBuffer = Array.from({ length: _numLandmarks }, () => ({ x: 0, y: 0, z: 0 }))
   }
@@ -328,17 +341,19 @@ export class LandmarkSmoother {
     for (let i = 0; i < this._numLandmarks; i++) {
       const lm = landmarks[i]
       const f = this._filters[i]
-      // Z-axis: median pre-filter then One-Euro
+      // Median pre-filter all axes then One-Euro
+      const xMedian = this._xMedian[i].filter(lm.x)
+      const yMedian = this._yMedian[i].filter(lm.y)
       const zMedian = this._zMedian[i].filter(lm.z)
       // Reuse existing object in the output array if available
       if (out[i]) {
-        out[i].x = f.x.filter(lm.x, timestamp)
-        out[i].y = f.y.filter(lm.y, timestamp)
+        out[i].x = f.x.filter(xMedian, timestamp)
+        out[i].y = f.y.filter(yMedian, timestamp)
         out[i].z = f.z.filter(zMedian, timestamp)
       } else {
         out[i] = {
-          x: f.x.filter(lm.x, timestamp),
-          y: f.y.filter(lm.y, timestamp),
+          x: f.x.filter(xMedian, timestamp),
+          y: f.y.filter(yMedian, timestamp),
           z: f.z.filter(zMedian, timestamp)
         }
       }
@@ -353,6 +368,12 @@ export class LandmarkSmoother {
       f.x.reset()
       f.y.reset()
       f.z.reset()
+    }
+    for (const m of this._xMedian) {
+      m.reset()
+    }
+    for (const m of this._yMedian) {
+      m.reset()
     }
     for (const m of this._zMedian) {
       m.reset()

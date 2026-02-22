@@ -264,14 +264,14 @@ export function HandChordOverlay({
 
   return (
     <>
-      {/* Left hand — bottom-left */}
+      {/* Left hand — above ClusterLegend to avoid layout collision */}
       <canvas
         ref={leftCanvasRef}
         width={PANEL_W}
         height={PANEL_H}
         style={{
           position: 'absolute',
-          bottom: 16,
+          bottom: 230,
           left: 16,
           pointerEvents: 'none',
           width: PANEL_W,
