@@ -5,6 +5,7 @@
 
 import React from 'react'
 import { getGestureIcon } from './gesture-icons'
+import { COLORS } from '../styles/tokens'
 
 export interface GestureGuideProps {
   visible: boolean
@@ -54,7 +55,7 @@ const overlayStyle: React.CSSProperties = {
 
 const cardStyle: React.CSSProperties = {
   position: 'relative',
-  background: '#1a1a2e',
+  background: COLORS.cardBg,
   borderRadius: 12,
   padding: 24,
   maxWidth: 600,

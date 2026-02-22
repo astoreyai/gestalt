@@ -17,6 +17,7 @@ import {
   type GestureConfig,
   DEFAULT_GESTURE_CONFIG
 } from './types'
+import { computeAdaptivePinchThreshold } from '../tracker/adaptive-threshold'
 
 // ─── Geometric Helpers ──────────────────────────────────────────────
 
@@ -496,9 +497,10 @@ function areFingersApproaching(hand: Hand): boolean {
   const rawDot = relVx * ndx + relVy * ndy
 
   // Frame-rate-independent EMA: alpha_dt = 1 - exp(-dt / tau)
-  // At 30fps (dt=33ms), alpha ≈ 0.4 (original behavior)
-  // At 60fps (dt=16ms), alpha ≈ 0.22 (less per-frame smoothing, same temporal behavior)
-  const alpha = 1 - Math.exp(-16.667 / APPROACH_TAU) // Approximate with ~60fps dt
+  const now = performance.now()
+  const dt = state.prevTimestamp > 0 ? now - state.prevTimestamp : 16.667
+  state.prevTimestamp = now
+  const alpha = 1 - Math.exp(-dt / APPROACH_TAU)
   state.smoothedDot = alpha * rawDot + (1 - alpha) * state.smoothedDot
 
   // Update previous positions
@@ -762,10 +764,16 @@ export function classifyGesture(
     previousType === gestureType ? config.extensionThreshold + hm : config.extensionThreshold
 
   // Pre-compute pinch distance for both fist-exclusion and pinch detection
-  const pinchThr = previousType === GestureType.Pinch
+  // Note: detectPinch already normalizes distance by palm size (wrist-to-middle-MCP),
+  // so computeAdaptivePinchThreshold is not applied here to avoid double normalization.
+  // computeAdaptivePinchThreshold is available for raw-distance comparisons elsewhere.
+  const pinchHysteresis = previousType === GestureType.Pinch
+  const pinchThr = pinchHysteresis
     ? config.pinchThreshold + hm
     : config.pinchThreshold
-  const pinch = cachedPinch && pinchThr === config.pinchThreshold
+  // Never use cachedPinch when hysteresis is active — the cache was computed
+  // with the base threshold, but we need a wider threshold to maintain pinch.
+  const pinch = cachedPinch && !pinchHysteresis
     ? cachedPinch
     : detectPinch(hand, { ...config, pinchThreshold: pinchThr })
 
@@ -820,8 +828,16 @@ export function classifyGesture(
   // Uses relative comparison instead of absolute thresholds because
   // MediaPipe z-depth is unreliable at many camera angles, causing
   // curled fingers to report low curl values (0.1-0.3).
-  const absoluteMatch = indexExt && middleCurled && ringCurled && pinkyCurled
-  const relativeMatch = indexExt && (avgOtherCurl - curls.index) > 0.1
+  // Hysteresis: lower relative threshold when already pointing to prevent flickering
+  const pointRelThr = previousType === GestureType.Point ? 0.06 : 0.1
+  const pointCurlThr = curlThr(GestureType.Point)
+  const pointExtThr = extThr(GestureType.Point)
+  const pointIndexExt = curls.index < pointExtThr
+  const pointMiddleCurled = curls.middle > pointCurlThr
+  const pointRingCurled = curls.ring > pointCurlThr
+  const pointPinkyCurled = curls.pinky > pointCurlThr
+  const absoluteMatch = pointIndexExt && pointMiddleCurled && pointRingCurled && pointPinkyCurled
+  const relativeMatch = pointIndexExt && (avgOtherCurl - curls.index) > pointRelThr
 
   if (absoluteMatch || relativeMatch) {
     // Confidence based on how clearly index is distinguished from other fingers

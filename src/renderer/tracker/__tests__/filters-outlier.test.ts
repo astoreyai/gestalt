@@ -16,8 +16,8 @@ describe('LandmarkSmoother — X/Y outlier rejection', () => {
   let smoother: LandmarkSmoother
 
   beforeEach(() => {
-    // Use uniform config (perJoint=false) to isolate median filter behavior
-    smoother = new LandmarkSmoother({ minCutoff: 10, beta: 0 }, 21, false)
+    // Use uniform config (perJoint=false, zNormalize=false) to isolate median filter behavior
+    smoother = new LandmarkSmoother({ minCutoff: 10, beta: 0 }, 21, false, 0, false)
   })
 
   it('rejects X-axis spike via median filter', () => {

@@ -8,6 +8,7 @@ import type { CalibrationProfile } from '@shared/protocol'
 import { useVisualStore, useGestureStore, useUIStore, useConfigStore } from '../controller/store'
 import { ViewSwitcher } from '../controller/ViewSwitcher'
 import { A11Y_COLORS, getTrackingStatusIndicator } from '../controller/a11y'
+import { COLORS, MIN_TOUCH_TARGET } from '../styles/tokens'
 
 // Electron -webkit-app-region is not in React.CSSProperties — cast via Record
 type DragStyle = React.CSSProperties & Record<string, unknown>
@@ -30,10 +31,10 @@ const activeHighlightStyle: React.CSSProperties = {
   border: '1px solid rgba(100, 140, 255, 0.6)'
 }
 
-/** Window control button style (minimize/maximize/close) — 44px for WCAG touch target */
+/** Window control button style (minimize/maximize/close) — WCAG touch target */
 const winBtnStyle: DragStyle = {
-  width: 44,
-  height: 44,
+  width: MIN_TOUCH_TARGET,
+  height: MIN_TOUCH_TARGET,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -95,7 +96,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
           background: 'rgba(0,0,0,0.6)',
           borderRadius: 8,
           fontSize: 13,
-          color: '#4a9eff',
+          color: COLORS.handRight,
           pointerEvents: 'none'
         }}>
           Overlay Mode — Super+G to exit
@@ -138,7 +139,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         </span>
         {trackingEnabled && trackingQuality != null && (
           <span aria-live="polite" style={{
-            color: trackingQuality >= 80 ? '#6bcb77' : trackingQuality >= 50 ? '#f0c040' : '#e05050',
+            color: trackingQuality >= 80 ? COLORS.success : trackingQuality >= 50 ? COLORS.warning : COLORS.error,
             fontSize: 11,
             fontWeight: 'bold'
           }}>
@@ -236,7 +237,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         </button>
         <button
           onClick={() => window.api.toggleOverlay()}
-          style={{ ...buttonStyle, background: 'var(--button-bg)', borderColor: '#4a9eff' }}
+          style={{ ...buttonStyle, background: 'var(--button-bg)', borderColor: COLORS.accent }}
           title="Toggle Overlay Mode (Super+G)"
           aria-label="Toggle overlay mode"
         >

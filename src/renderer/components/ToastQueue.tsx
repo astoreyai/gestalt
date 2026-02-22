@@ -5,13 +5,14 @@
 
 import React from 'react'
 import type { Toast } from '../controller/store'
+import { COLORS } from '../styles/tokens'
 
 /** Severity-based background colors for toast notifications */
 const TOAST_COLORS: Record<Toast['severity'], string> = {
-  error: '#ff6b6b',
-  warning: '#ffd93d',
-  info: '#4a9eff',
-  success: '#6bcb77'
+  error: COLORS.error,
+  warning: COLORS.warning,
+  info: COLORS.handRight,
+  success: COLORS.success
 }
 
 export interface ToastQueueProps {

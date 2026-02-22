@@ -42,7 +42,7 @@ export class SystemTray {
     // Create a simple 16x16 tray icon
     const icon = nativeImage.createEmpty()
     this.tray = new Tray(icon)
-    this.tray.setToolTip('Tracking — Hand-Tracked 3D Explorer')
+    this.tray.setToolTip('Gestalt — Hand-Tracked 3D Explorer')
 
     this.tray.on('click', () => {
       this.onShowWindow?.()
@@ -107,7 +107,7 @@ export class SystemTray {
 
     this.tray.setContextMenu(menu)
     this.tray.setToolTip(
-      `Tracking${this.state.trackingEnabled ? '' : ' (paused)'} — ` +
+      `Gestalt${this.state.trackingEnabled ? '' : ' (paused)'} — ` +
       `${this.state.connectedPrograms} programs connected`
     )
   }

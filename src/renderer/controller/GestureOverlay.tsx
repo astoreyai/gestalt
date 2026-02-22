@@ -12,6 +12,7 @@ import { updateLabelState } from './gesture-label-state'
 import type { LabelState } from './gesture-label-state'
 import type { HandMotionMetrics } from '../tracker/motion'
 import { PositionTrail } from '../tracker/trail'
+import { COLORS } from '../styles/tokens'
 
 export interface GestureOverlayProps {
   landmarkFrame: LandmarkFrame | null
@@ -59,8 +60,8 @@ const HAND_CONNECTIONS: [number, number][] = [
 ]
 
 /** Trail colors per hand */
-const TRAIL_COLOR_RIGHT = '#4a9eff'
-const TRAIL_COLOR_LEFT = '#6bcb77'
+const TRAIL_COLOR_RIGHT = COLORS.handRight
+const TRAIL_COLOR_LEFT = COLORS.handLeft
 
 const RAD_TO_DEG = 180 / Math.PI
 
@@ -118,7 +119,7 @@ export function GestureOverlay({
     let hasRight = false
 
     for (const hand of landmarkFrame.hands) {
-      const color = hand.handedness === 'right' ? '#4a9eff' : '#6bcb77'
+      const color = hand.handedness === 'right' ? COLORS.handRight : COLORS.handLeft
       if (hand.handedness === 'left') hasLeft = true; else hasRight = true
 
       // Update motion trail
@@ -242,7 +243,7 @@ export function GestureOverlay({
           const tip = hand.landmarks[LANDMARK.INDEX_TIP]
           if (tip) {
             ctx.globalAlpha = 0.6
-            ctx.strokeStyle = '#4a9eff'
+            ctx.strokeStyle = COLORS.handRight
             ctx.lineWidth = 1
             ctx.setLineDash([4, 4])
             ctx.beginPath()
@@ -306,7 +307,7 @@ export function GestureOverlay({
             left: '50%',
             transform: 'translateX(-50%)',
             padding: '6px 16px',
-            background: 'rgba(74, 158, 255, 0.8)',
+            background: `${COLORS.handRight}cc`,
             borderRadius: 20,
             fontSize: 14,
             fontWeight: 'bold',

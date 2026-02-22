@@ -14,7 +14,7 @@ import {
   LANDMARK
 } from '@shared/protocol'
 import { type GestureConfig, DEFAULT_GESTURE_CONFIG } from './types'
-import { classifyGesture, detectPinch, distance } from './classifier'
+import { classifyGesture, detectPinch, distance, resetPinchVelocity } from './classifier'
 import { computeTrackingQuality } from '../tracker/quality'
 
 const TWO_PI = 2 * Math.PI
@@ -276,6 +276,8 @@ export class GestureEngine {
 
   /** Tracks previous classification per hand for hysteresis */
   private _lastClassification: [GestureType | null, GestureType | null] = [null, null]
+  /** Tracks which hands were present in the previous frame (for pinch velocity reset) */
+  private _previousHandedness: Set<Handedness> = new Set()
 
   /** Tracks last pinch onset timestamp per hand for twoHandOnsetGrace */
   private _pinchOnsetTime: [number, number] = [0, 0]
@@ -327,6 +329,16 @@ export class GestureEngine {
     const events: GestureEvent[] = []
     const { hands, timestamp } = frame
     const effectiveConfig = this.getEffectiveConfig()
+
+    // Reset pinch velocity for hands that disappeared since last frame
+    const currentHandedness = new Set<Handedness>()
+    for (const hand of hands) currentHandedness.add(hand.handedness)
+    for (const prev of this._previousHandedness) {
+      if (!currentHandedness.has(prev)) {
+        resetPinchVelocity(prev)
+      }
+    }
+    this._previousHandedness = currentHandedness
 
     // ─── Pre-compute per-hand results (reuse pooled Maps) ─
     const handCenters = this._handCentersPool
