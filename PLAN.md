@@ -1,4 +1,4 @@
-# Development Plan: Hand-Tracked 3D Knowledge Graph Explorer
+# Development Plan: Gestalt — Hand-Tracked 3D Knowledge Graph Explorer
 
 > **Status: COMPLETE** -- All phases implemented. 1040 tests passing at 90%+ coverage.
 

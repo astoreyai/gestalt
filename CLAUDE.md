@@ -1,4 +1,4 @@
-# Tracking — Hand-Tracked 3D Knowledge Graph & Latent Space Explorer
+# Gestalt — Hand-Tracked 3D Knowledge Graph & Latent Space Explorer
 
 ## Project Overview
 
@@ -13,7 +13,7 @@ Electron desktop app for navigating 3D knowledge graphs and embedding manifolds 
 ```bash
 npm run dev              # Launch dev mode (electron-vite dev)
 npm run build            # Production build
-npm run test             # Run vitest (1040 tests, 34 files)
+npm run test             # Run vitest (1041 tests, 34 files)
 npm run test:watch       # Vitest watch mode
 npm run typecheck        # tsc --noEmit
 npm run lint             # ESLint
@@ -45,7 +45,7 @@ src/
 │   ├── hooks/               # useHandTracker
 │   ├── manifold/            # PointCloud, Clusters, HoverCard, navigation
 │   ├── settings/            # Settings panel (6 tabs + calibration button)
-│   └── tracker/             # HandTracker class, normalize, filters (One-Euro)
+│   └── tracker/             # HandTracker class, normalize, filters (One-Euro), StereoFuser
 ├── shared/
 │   ├── protocol.ts          # All shared types, enums, config defaults
 │   └── ipc-channels.ts      # IPC channel constants
@@ -57,13 +57,17 @@ src/
 - **Store**: `src/renderer/controller/store.ts` — 5 slices: Visual, Data, Gesture, Config, UI
 - **Dispatcher**: `src/renderer/controller/dispatcher.ts` — Gesture → SceneAction mapping (wired into App.tsx)
 - **Classifier**: `src/renderer/gestures/classifier.ts` — Hybrid angle+distance fingerCurl, priority: Fist → Pinch → L-Shape → Point → FlatDrag → OpenPalm
+- **GestureEngine**: `src/renderer/gestures/state.ts` — Pre-allocated 2D state machine grid [2 hands × 10 types], O(1) lookup
+- **TwoHandCoordinator**: `src/renderer/gestures/two-hand-coordinator.ts` — Combo matrix (both-pinch → scale, both-twist → rotate, etc.)
 - **HandTracker**: `src/renderer/tracker/HandTracker.ts` — MediaPipe wrapper, GPU delegate, 60fps camera, One-Euro smoothing
+- **StereoFuser**: `src/renderer/tracker/stereo-fuser.ts` — Dual-camera triangulation for improved z-depth
 - **Force Layout**: `src/renderer/graph/force-layout.ts` — Synchronous d3-force-3d (Worker had reliability issues)
 - **Protocol**: `src/shared/protocol.ts` — All type definitions, GestureType/GesturePhase enums, DEFAULT_CONFIG
 
 ## Screenshots
 
 Screenshots are saved to `screenshots/` in the project root (KDE Spectacle default for this project).
+Best screenshots copied to `docs/images/` for README.
 
 ## Known Issues & Quirks
 
@@ -88,7 +92,7 @@ Adjustable via Settings > Gestures > Responsiveness slider.
 
 ## Testing
 
-- 1040 tests, 34 test files, all passing
+- 1041 tests, 34 test files, all passing
 - Test framework: Vitest with happy-dom
 - Synthetic hand data in `src/renderer/gestures/__tests__/classifier.test.ts` — fingers must be spread far enough that thumb tip and index tip distance > pinchThreshold (0.10)
 - GestureEngine tests use `{ minOnsetFrames: 1, minHoldDuration: 0 }` to avoid timing sensitivity

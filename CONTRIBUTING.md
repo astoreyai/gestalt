@@ -1,4 +1,4 @@
-# Contributing to Tracking
+# Contributing to Gestalt
 
 Thanks for your interest in contributing! This document covers the essentials for getting set up and submitting changes.
 
@@ -6,7 +6,7 @@ Thanks for your interest in contributing! This document covers the essentials fo
 
 ```bash
 git clone https://github.com/astoreyai/tracking.git
-cd tracking
+cd gestalt
 npm install
 npm run native:build   # Compile the C++ uinput addon (Linux required)
 ```

@@ -1,7 +1,7 @@
 {
-  "name": "tracking",
-  "version": "0.1.0",
-  "description": "Hand-Tracked 3D Knowledge Graph & Latent Space Explorer",
+  "name": "gestalt",
+  "version": "0.2.0",
+  "description": "Hand-tracked 3D knowledge graph and embedding explorer with gesture control",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -60,8 +60,8 @@
     "vitest": "^3.0.0"
   },
   "build": {
-    "appId": "com.tracking.app",
-    "productName": "Tracking",
+    "appId": "com.gestalt.app",
+    "productName": "Gestalt",
     "linux": {
       "target": [
         "AppImage",

@@ -43,7 +43,7 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false // Needed for native addon access via preload
     },
-    title: 'Tracking — Hand-Tracked 3D Explorer'
+    title: 'Gestalt — Hand-Tracked 3D Explorer'
   })
 
   // In dev, load the Vite dev server URL

@@ -1,4 +1,4 @@
-# Product Requirements Document (PRD): Hand-Tracked 3D Knowledge Graph & Latent Space Explorer
+# Product Requirements Document (PRD): Gestalt — Hand-Tracked 3D Knowledge Graph & Latent Space Explorer
 
 > **Implementation Note (2026-02-20):** This PRD was written before development began. The
 > application was built as an all-TypeScript Electron app -- not the Python/REST/OAuth stack

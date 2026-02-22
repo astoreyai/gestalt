@@ -8,3 +8,24 @@ coverage/
 *.tsbuildinfo
 .vite/
 out/
+
+# Screenshots (local captures)
+screenshots/
+
+# Packaging artifacts
+*.AppImage
+*.deb
+*.snap
+*.rpm
+
+# OS
+.DS_Store
+thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache / temp
+.cache/
+tmp/
