@@ -48,6 +48,9 @@ To load sample data, open the app and use **File > Open** or drag-and-drop one o
 - **URL import** -- load graph and manifold data directly from a URL
 - **Auto-updater** -- automatic update checks and installation via electron-updater
 - **One-handed mode** -- accessibility mode mapping all actions to single-hand gestures
+- **Transparent overlay mode** -- always-on-top transparent overlay for OS-level gesture control, toggle via Super+G or tray icon
+- **Frameless window** -- custom title bar with drag region and window controls
+- **Advanced tracking accuracy** -- per-joint One-Euro filter tuning, z-axis median pre-filter, orientation-adaptive curl weights, thumb opposition measurement, pinch approach-vector gating
 - **Themes** -- light, dark, and system-following theme modes
 
 ## Architecture
@@ -98,6 +101,16 @@ To load sample data, open the app and use **File > Open** or drag-and-drop one o
 | **Flat Drag** | Pan | Flat hand drag to pan the scene |
 | **Fist** | Cancel / Escape | Close fist to cancel or press Escape |
 | **L-Shape** | Custom shortcut | L-shaped hand triggers a configurable key combo |
+
+### Overlay Mode
+
+Toggle overlay mode with **Super+G**, the HUD button, or the system tray. In overlay mode:
+
+- Window becomes transparent and always-on-top
+- All gestures route to OS-level native input (mouse/keyboard via uinput)
+- Point moves cursor, Pinch clicks, Fist right-clicks, FlatDrag scrolls
+- Only hand skeleton and chord panels remain visible
+- Press Super+G again to return to normal windowed mode
 
 ### Two-Hand Gestures
 
@@ -332,7 +345,7 @@ Tests use **Vitest 3** with **happy-dom** as the simulated browser environment a
 | Rendering frame rate | 60 FPS |
 | Hand tracking frequency | 60 FPS |
 | Gesture recognition accuracy | >= 95% |
-| Gesture classification throughput | > 700K/sec |
+| Gesture classification throughput | > 950K/sec |
 | Memory (up to 1M nodes) | < 1 GB |
 | Max graph capacity | 10M nodes, 50M edges (with LOD and culling) |
 
