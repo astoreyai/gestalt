@@ -640,6 +640,68 @@ export function detectFlatDrag(
 // Pre-allocated curls object reused by classifyGesture to avoid per-call allocation
 const _curls: Record<FingerName, number> = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 }
 
+// ─── Partial Hand Accommodation ─────────────────────────────────────
+
+/**
+ * Finger tip landmark indices for occlusion detection.
+ */
+const FINGER_TIP_INDICES: [FingerName, number][] = [
+  ['thumb', LANDMARK.THUMB_TIP],
+  ['index', LANDMARK.INDEX_TIP],
+  ['middle', LANDMARK.MIDDLE_TIP],
+  ['ring', LANDMARK.RING_TIP],
+  ['pinky', LANDMARK.PINKY_TIP]
+]
+
+/**
+ * Detect which fingers have low confidence (occluded/missing landmarks).
+ * Returns a set of finger names that should be excluded from classification.
+ *
+ * When a finger tip landmark is missing from the array or has a confidence
+ * value below the threshold, that finger is considered occluded. This allows
+ * gesture classification to adapt when part of the hand is hidden.
+ *
+ * @param landmarks Array of landmarks, optionally with confidence metadata
+ * @param threshold Minimum confidence to consider a finger "present". Default: 0.3
+ * @returns Set of FingerName strings for fingers that should be excluded
+ */
+export function detectMissingFingers(
+  landmarks: (Landmark & { confidence?: number })[],
+  threshold: number = 0.3
+): Set<FingerName> {
+  const missing = new Set<FingerName>()
+  for (const [name, tipIdx] of FINGER_TIP_INDICES) {
+    const lm = landmarks[tipIdx]
+    if (!lm || (lm.confidence !== undefined && lm.confidence < threshold)) {
+      missing.add(name)
+    }
+  }
+  return missing
+}
+
+/**
+ * Compute average curl excluding missing/occluded fingers.
+ * Used to determine gesture type when not all fingers are visible.
+ *
+ * @param curls Per-finger curl values
+ * @param missing Set of finger names to exclude
+ * @returns Average curl of visible fingers, or 0 if none visible
+ */
+export function avgCurlExcluding(
+  curls: Record<FingerName, number>,
+  missing: Set<FingerName>
+): number {
+  let sum = 0
+  let count = 0
+  for (const name of FINGER_NAMES) {
+    if (!missing.has(name)) {
+      sum += curls[name]
+      count++
+    }
+  }
+  return count > 0 ? sum / count : 0
+}
+
 // ─── Main Classifier ────────────────────────────────────────────────
 
 /**

@@ -6,7 +6,8 @@
 import React, { useRef, useEffect, useCallback } from 'react'
 import type { LandmarkFrame, GestureEvent } from '@shared/protocol'
 import { LANDMARK, GestureType, GesturePhase } from '@shared/protocol'
-import { getGestureActionLabel } from './gesture-labels'
+import { getGestureActionLabel, getContextualGestureLabel } from './gesture-labels'
+import type { HoverTarget } from './gesture-labels'
 import { updateLabelState } from './gesture-label-state'
 import type { LabelState } from './gesture-label-state'
 import type { HandMotionMetrics } from '../tracker/motion'
@@ -24,6 +25,10 @@ export interface GestureOverlayProps {
   showMotionMetrics?: boolean
   /** Whether to show fading motion trails */
   showMotionTrail?: boolean
+  /** Current view mode for contextual labels */
+  viewMode?: string
+  /** Current hover target type */
+  hoverTarget?: HoverTarget
 }
 
 // Connections between landmarks for drawing hand skeleton
@@ -67,7 +72,9 @@ export function GestureOverlay({
   height,
   motionMetrics,
   showMotionMetrics = false,
-  showMotionTrail = true
+  showMotionTrail = true,
+  viewMode = 'graph',
+  hoverTarget = null
 }: GestureOverlayProps): React.ReactElement | null {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Track last drawn frame ID to skip redundant redraws */
@@ -310,9 +317,11 @@ export function GestureOverlay({
             transition: 'none'
           }}
         >
-          {getGestureActionLabel(
+          {getContextualGestureLabel(
             label.text as GestureType,
-            activeGesture?.phase ?? GesturePhase.Hold
+            activeGesture?.phase ?? GesturePhase.Hold,
+            viewMode,
+            hoverTarget
           )}
         </div>
       )}

@@ -98,7 +98,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
           color: '#4a9eff',
           pointerEvents: 'none'
         }}>
-          Overlay Mode
+          Overlay Mode — Super+G to exit
         </div>
       </div>
     )
@@ -148,6 +148,23 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         {cameraCount > 0 && (
           <span style={{ color: cameraCount >= 2 ? A11Y_COLORS.trackingActive : A11Y_COLORS.textSecondary, fontSize: 11 }}>
             {cameraCount >= 2 ? 'Stereo' : 'Mono'}
+          </span>
+        )}
+        {oneHandedMode && (
+          <span
+            data-testid="one-handed-indicator"
+            title="One-handed mode: Point+Twist→Rotate, Point+Fist→Zoom"
+            style={{
+              padding: '2px 6px',
+              background: 'rgba(100, 140, 255, 0.3)',
+              border: '1px solid rgba(100, 140, 255, 0.6)',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 'bold',
+              color: '#8ab4ff'
+            }}
+          >
+            1H Mode
           </span>
         )}
         {hasGraph && (
