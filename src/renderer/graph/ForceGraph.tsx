@@ -222,8 +222,8 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         raycaster.setFromCamera(ndc, camera)
         const ray = raycaster.ray
 
-        // Estimate world position along ray at mid-scene depth
-        const approx = ray.at(camera.position.length() * 0.5, v)
+        // Estimate world position along ray at scene center depth
+        const approx = ray.at(camera.position.length(), v)
         const cx = Math.floor(approx.x / cellSize)
         const cy = Math.floor(approx.y / cellSize)
         const cz = Math.floor(approx.z / cellSize)
