@@ -62,19 +62,22 @@
   "build": {
     "appId": "com.gestalt.app",
     "productName": "Gestalt",
+    "compression": "maximum",
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "category": "Science"
+      "category": "Science",
+      "executableName": "gestalt"
     },
     "files": [
       "dist/main/**/*",
       "dist/preload/**/*",
       "dist/renderer/**/*",
       "native/build/Release/tracking_input.node",
-      "!**/node_modules/**/*"
+      "!**/node_modules/**/*",
+      "!**/*.map"
     ],
     "asarUnpack": [
       "native/**/*.node"

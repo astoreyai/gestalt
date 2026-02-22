@@ -105,6 +105,29 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.UPDATE_PROGRESS, handler)
   },
 
+  // ─── Overlay Mode ──────────────────────────────────────────────
+  toggleOverlay: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.OVERLAY_TOGGLE),
+
+  getOverlayState: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.OVERLAY_GET),
+
+  onOverlayChanged: (callback: (active: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, active: boolean) => callback(active)
+    ipcRenderer.on(IPC.OVERLAY_CHANGED, handler)
+    return () => ipcRenderer.removeListener(IPC.OVERLAY_CHANGED, handler)
+  },
+
+  // ─── Window Controls (Frameless) ────────────────────────────────
+  minimizeWindow: (): void =>
+    ipcRenderer.send(IPC.WINDOW_MINIMIZE),
+
+  maximizeWindow: (): void =>
+    ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
+
+  closeWindow: (): void =>
+    ipcRenderer.send(IPC.WINDOW_CLOSE),
+
   // ─── Dev ──────────────────────────────────────────────────────
   echo: (msg: string): Promise<string> =>
     ipcRenderer.invoke(IPC.ECHO, msg)

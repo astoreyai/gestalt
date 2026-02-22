@@ -1,6 +1,12 @@
 /**
  * Rule-based gesture classifier.
  * Takes Hand landmarks and returns detected gestures using geometric analysis.
+ *
+ * Accuracy improvements over baseline:
+ *   1. World landmarks for curl (better 3D geometry than normalized coords)
+ *   2. Thumb-specific curl via opposition distance
+ *   3. Orientation-adaptive angle/distance blend weights
+ *   4. Pinch approach-vector gating (prevents crossing false positives)
  */
 
 import { type Landmark, type Hand, LANDMARK, GestureType } from '@shared/protocol'
@@ -54,6 +60,50 @@ export function angleBetween(a: Landmark, b: Landmark, c: Landmark): number {
   return Number.isFinite(angle) ? angle : 0
 }
 
+// ─── Palm Normal & Orientation ──────────────────────────────────────
+
+// Pre-allocated cross product vector
+const _palmNormal = { x: 0, y: 0, z: 0 }
+
+/**
+ * Compute palm normal vector and return the camera-facing factor [0,1].
+ * 1.0 = palm faces camera directly (z-axis aligned)
+ * 0.0 = palm is edge-on (z-axis perpendicular to camera)
+ *
+ * Used to adaptively weight angle vs distance curl measurement.
+ */
+export function computePalmFacing(landmarks: Landmark[]): number {
+  const wrist = landmarks[LANDMARK.WRIST]
+  const indexMcp = landmarks[LANDMARK.INDEX_MCP]
+  const pinkyMcp = landmarks[LANDMARK.PINKY_MCP]
+
+  // Two vectors on the palm plane
+  const ax = indexMcp.x - wrist.x
+  const ay = indexMcp.y - wrist.y
+  const az = indexMcp.z - wrist.z
+  const bx = pinkyMcp.x - wrist.x
+  const by = pinkyMcp.y - wrist.y
+  const bz = pinkyMcp.z - wrist.z
+
+  // Cross product = palm normal
+  _palmNormal.x = ay * bz - az * by
+  _palmNormal.y = az * bx - ax * bz
+  _palmNormal.z = ax * by - ay * bx
+
+  const mag = Math.sqrt(
+    _palmNormal.x * _palmNormal.x +
+    _palmNormal.y * _palmNormal.y +
+    _palmNormal.z * _palmNormal.z
+  )
+
+  if (mag < 0.000001) return 0.5
+
+  // Camera looks along -z in normalized coords. Palm normal z-component
+  // tells us how much the palm faces the camera.
+  const facing = Math.abs(_palmNormal.z / mag)
+  return Math.max(0, Math.min(1, facing))
+}
+
 // ─── Finger Landmark Indices ────────────────────────────────────────
 
 interface FingerIndices {
@@ -101,43 +151,103 @@ const FINGER_NAMES: FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pinky']
 // ─── Finger Analysis ────────────────────────────────────────────────
 
 /**
- * Compute curl amount for a finger.
- * Uses a hybrid of joint angles and tip-to-MCP distance ratio.
+ * Compute curl amount for a finger using world landmarks when available.
  * Returns 0 = fully extended, 1 = fully curled.
  *
- * The angle-based approach can be unreliable when camera depth (z) is noisy.
- * Adding a distance ratio (tip-to-MCP vs MCP-to-wrist) provides a more
- * robust signal: curled fingers have tips close to their MCP joints.
+ * Improvements:
+ * - Uses world landmarks (metric 3D) for distance-based curl when available
+ *   (better depth than normalized screen coords)
+ * - Thumb uses opposition distance instead of standard curl
+ * - Orientation-adaptive blend weights: when palm faces camera, angles
+ *   are reliable; when edge-on, distance is more robust
  */
-export function fingerCurl(landmarks: Landmark[], finger: FingerName): number {
+export function fingerCurl(
+  landmarks: Landmark[],
+  finger: FingerName,
+  worldLandmarks?: Landmark[],
+  palmFacing?: number
+): number {
+  // Thumb uses a specialized opposition-based measurement
+  if (finger === 'thumb') {
+    return thumbCurl(landmarks, worldLandmarks)
+  }
+
   const idx = FINGER_INDICES[finger]
-  const mcp = landmarks[idx.mcp]
-  const pip = landmarks[idx.pip]
-  const dip = landmarks[idx.dip]
-  const tip = landmarks[idx.tip]
+
+  // Use world landmarks for distance-based curl if available (better 3D geometry)
+  const distLm = worldLandmarks && worldLandmarks.length === 21 ? worldLandmarks : landmarks
+  const angleLm = landmarks // angles work fine with normalized coords
 
   // Angle-based curl: straight = pi, bent = 0
-  const angle1 = angleBetween(mcp, pip, dip)
-  const angle2 = angleBetween(pip, dip, tip)
+  const angle1 = angleBetween(angleLm[idx.mcp], angleLm[idx.pip], angleLm[idx.dip])
+  const angle2 = angleBetween(angleLm[idx.pip], angleLm[idx.dip], angleLm[idx.tip])
   const avgAngle = (angle1 + angle2) / 2
   const angleCurl = Math.max(0, Math.min(1, 1 - avgAngle * INV_PI))
 
-  // Distance-based curl: how close is the tip to the MCP relative to finger length?
-  // Extended finger: tip far from MCP. Curled: tip close to MCP.
-  // Use squared distances to avoid 4x sqrt per finger. Only sqrt the ratio.
-  const tipToMcpSq = distanceSquared(tip, mcp)
-  // Approximate max finger length as sum of bone segments (squared individually, then sqrt once)
-  const boneSq1 = distanceSquared(mcp, pip)
-  const boneSq2 = distanceSquared(pip, dip)
-  const boneSq3 = distanceSquared(dip, tip)
+  // Distance-based curl using world landmarks (metric space, no aspect-ratio distortion)
+  const tipToMcpSq = distanceSquared(distLm[idx.tip], distLm[idx.mcp])
+  const boneSq1 = distanceSquared(distLm[idx.mcp], distLm[idx.pip])
+  const boneSq2 = distanceSquared(distLm[idx.pip], distLm[idx.dip])
+  const boneSq3 = distanceSquared(distLm[idx.dip], distLm[idx.tip])
   const boneLen = Math.sqrt(boneSq1) + Math.sqrt(boneSq2) + Math.sqrt(boneSq3)
   const boneLenSq = boneLen * boneLen
   const distRatio = boneLenSq > 0.000001 ? Math.sqrt(tipToMcpSq / boneLenSq) : 1
-  // distRatio ~1 when straight, ~0.3 when curled. Map to curl value.
   const distCurl = Math.max(0, Math.min(1, 1 - distRatio))
 
-  // Blend: weight distance ratio more heavily since it's less affected by z-noise
-  return angleCurl * 0.4 + distCurl * 0.6
+  // Orientation-adaptive blend weights:
+  // Palm facing camera → angles reliable (weight 0.5/0.5)
+  // Palm edge-on → distances more robust (weight 0.2/0.8)
+  const facing = palmFacing ?? 0.5
+  const angleWeight = 0.2 + facing * 0.3 // range [0.2, 0.5]
+  const distWeight = 1.0 - angleWeight    // range [0.5, 0.8]
+
+  return angleCurl * angleWeight + distCurl * distWeight
+}
+
+/**
+ * Thumb-specific curl using opposition distance.
+ * The thumb doesn't curl like other fingers — it opposes (rotates toward the palm).
+ * Measures distance from thumb tip to palm center, normalized by palm size.
+ *
+ * Returns 0 = fully extended/abducted, 1 = fully curled/opposed.
+ */
+function thumbCurl(landmarks: Landmark[], worldLandmarks?: Landmark[]): number {
+  const lm = worldLandmarks && worldLandmarks.length === 21 ? worldLandmarks : landmarks
+
+  const thumbTip = lm[LANDMARK.THUMB_TIP]
+  const thumbCmc = lm[LANDMARK.THUMB_CMC]
+  const wrist = lm[LANDMARK.WRIST]
+  const middleMcp = lm[LANDMARK.MIDDLE_MCP]
+  const indexMcp = lm[LANDMARK.INDEX_MCP]
+
+  // Palm center approximation
+  const palmCenterX = (wrist.x + middleMcp.x + indexMcp.x) / 3
+  const palmCenterY = (wrist.y + middleMcp.y + indexMcp.y) / 3
+  const palmCenterZ = (wrist.z + middleMcp.z + indexMcp.z) / 3
+  const palmCenter = { x: palmCenterX, y: palmCenterY, z: palmCenterZ }
+
+  // Thumb tip to palm center distance (opposition metric)
+  const tipToPalm = distance(thumbTip, palmCenter)
+
+  // Max reach: thumb CMC to palm center + thumb chain length
+  const cmcToPalm = distance(thumbCmc, palmCenter)
+  const thumbChain = distance(lm[LANDMARK.THUMB_CMC], lm[LANDMARK.THUMB_MCP])
+    + distance(lm[LANDMARK.THUMB_MCP], lm[LANDMARK.THUMB_IP])
+    + distance(lm[LANDMARK.THUMB_IP], lm[LANDMARK.THUMB_TIP])
+  const maxReach = cmcToPalm + thumbChain * 0.6
+
+  if (maxReach < 0.000001) return 0
+
+  // Close to palm = curled (high), far from palm = extended (low)
+  const extensionRatio = Math.min(tipToPalm / maxReach, 1.0)
+  const curl = 1.0 - extensionRatio
+
+  // Also factor in the basic angle between CMC→MCP→IP
+  const angle = angleBetween(lm[LANDMARK.THUMB_CMC], lm[LANDMARK.THUMB_MCP], lm[LANDMARK.THUMB_IP])
+  const angleCurl = Math.max(0, Math.min(1, 1 - angle * INV_PI))
+
+  // Blend: 70% opposition, 30% angle
+  return curl * 0.7 + angleCurl * 0.3
 }
 
 /**
@@ -183,23 +293,7 @@ export function analyzeHandPose(
   }
   const palmOpenness = extSum / 5
 
-  // Flatness: measure how coplanar the fingertips are by checking
-  // deviation of fingertip z-values from the wrist plane
-  const wristZ = landmarks[LANDMARK.WRIST].z
-  const tipIndices = [
-    LANDMARK.THUMB_TIP,
-    LANDMARK.INDEX_TIP,
-    LANDMARK.MIDDLE_TIP,
-    LANDMARK.RING_TIP,
-    LANDMARK.PINKY_TIP
-  ]
-  let sumZDiff = 0
-  for (const i of tipIndices) {
-    sumZDiff += Math.abs(landmarks[i].z - wristZ)
-  }
-  const avgZDiff = sumZDiff / tipIndices.length
-  // Normalize flatness: lower z deviation = flatter
-  const handFlatness = Math.max(0, Math.min(1, 1 - avgZDiff * 10))
+  const handFlatness = computeHandFlatness(landmarks)
 
   return {
     fingers,
@@ -227,12 +321,87 @@ export function computeHandFlatness(landmarks: Landmark[]): number {
   return Math.max(0, Math.min(1, 1 - (sumZDiff / tipIndices.length) * 10))
 }
 
+// ─── Pinch Velocity Tracking ────────────────────────────────────────
+
+/**
+ * Tracks previous thumb/index tip positions for approach-vector gating.
+ * Stored per hand (module-level to persist across classify calls).
+ */
+interface PinchVelocityState {
+  prevThumb: { x: number; y: number; z: number } | null
+  prevIndex: { x: number; y: number; z: number } | null
+}
+
+const _pinchVelocity: Record<string, PinchVelocityState> = {
+  left: { prevThumb: null, prevIndex: null },
+  right: { prevThumb: null, prevIndex: null }
+}
+
+/**
+ * Check if thumb and index tips are approaching each other (dot product > 0).
+ * Returns true if tips are converging or already very close, false if diverging.
+ */
+function areFingersApproaching(hand: Hand): boolean {
+  const state = _pinchVelocity[hand.handedness]
+  const thumb = hand.landmarks[LANDMARK.THUMB_TIP]
+  const index = hand.landmarks[LANDMARK.INDEX_TIP]
+
+  if (!state.prevThumb || !state.prevIndex) {
+    state.prevThumb = { x: thumb.x, y: thumb.y, z: thumb.z }
+    state.prevIndex = { x: index.x, y: index.y, z: index.z }
+    return true // No history — allow pinch
+  }
+
+  // Velocity vectors
+  const thumbVx = thumb.x - state.prevThumb.x
+  const thumbVy = thumb.y - state.prevThumb.y
+  const indexVx = index.x - state.prevIndex.x
+  const indexVy = index.y - state.prevIndex.y
+
+  // Relative velocity: index relative to thumb
+  const relVx = indexVx - thumbVx
+  const relVy = indexVy - thumbVy
+
+  // Direction from thumb to index
+  const dirX = index.x - thumb.x
+  const dirY = index.y - thumb.y
+
+  // Dot product: positive = moving apart, negative = approaching
+  const dot = relVx * dirX + relVy * dirY
+
+  // Update previous positions
+  state.prevThumb.x = thumb.x; state.prevThumb.y = thumb.y; state.prevThumb.z = thumb.z
+  state.prevIndex.x = index.x; state.prevIndex.y = index.y; state.prevIndex.z = index.z
+
+  // Already very close — always allow (they've made contact)
+  const distSq = distanceSquared(thumb, index)
+  if (distSq < 0.005) return true
+
+  // dot < 0 means approaching; dot >= 0 means separating
+  // Small threshold to avoid rejecting slow approaches
+  return dot < 0.001
+}
+
+/** Reset pinch velocity tracking (call on hand tracking loss) */
+export function resetPinchVelocity(handedness?: string): void {
+  if (handedness) {
+    const s = _pinchVelocity[handedness]
+    if (s) { s.prevThumb = null; s.prevIndex = null }
+  } else {
+    _pinchVelocity.left = { prevThumb: null, prevIndex: null }
+    _pinchVelocity.right = { prevThumb: null, prevIndex: null }
+  }
+}
+
 // ─── Gesture Detection Functions ────────────────────────────────────
 
 /**
  * Detect pinch gesture: thumb tip close to index tip.
  * Distance is normalized by palm size (wrist-to-middle-MCP) so the
  * same threshold works across different hand sizes and camera distances.
+ *
+ * Enhancement: approach-vector gating prevents false positives from
+ * thumb and index crossing paths without intentional pinch.
  */
 export function detectPinch(
   hand: Hand,
@@ -247,9 +416,13 @@ export function detectPinch(
   const palmNormSq = Math.max(palmDistSq, 0.000001)
   // Compare squared: rawDistSq / palmNormSq < threshold^2
   const thresholdSq = config.pinchThreshold * config.pinchThreshold
-  const detected = rawDistSq / palmNormSq < thresholdSq
+  const distBelowThreshold = rawDistSq / palmNormSq < thresholdSq
   // Only compute sqrt for the distance value (needed for confidence)
   const normalizedDist = Math.sqrt(rawDistSq / palmNormSq)
+
+  // Approach-vector gating: reject if fingers are diverging (crossing, not pinching)
+  const approaching = areFingersApproaching(hand)
+  const detected = distBelowThreshold && approaching
 
   return { detected, distance: normalizedDist }
 }
@@ -364,15 +537,20 @@ export function classifyGesture(
   }
 
   const lm = hand.landmarks
+  const wlm = hand.worldLandmarks
   const hm = config.hysteresisMargin ?? 0.04
 
+  // Compute palm facing for orientation-adaptive curl weights
+  const palmFacing = computePalmFacing(lm)
+
   // P2-48: Pre-compute all 5 finger curls once, reusing module-level buffer
+  // Pass world landmarks and palm facing for improved accuracy
   const curls = _curls
-  curls.thumb = fingerCurl(lm, 'thumb')
-  curls.index = fingerCurl(lm, 'index')
-  curls.middle = fingerCurl(lm, 'middle')
-  curls.ring = fingerCurl(lm, 'ring')
-  curls.pinky = fingerCurl(lm, 'pinky')
+  curls.thumb = fingerCurl(lm, 'thumb', wlm, palmFacing)
+  curls.index = fingerCurl(lm, 'index', wlm, palmFacing)
+  curls.middle = fingerCurl(lm, 'middle', wlm, palmFacing)
+  curls.ring = fingerCurl(lm, 'ring', wlm, palmFacing)
+  curls.pinky = fingerCurl(lm, 'pinky', wlm, palmFacing)
 
   // Hysteresis: if the previous classification matches the current candidate,
   // apply a margin bonus (lower curl threshold, higher pinch threshold) so
