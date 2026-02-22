@@ -14,7 +14,7 @@ import type { Landmark, LandmarkFrame } from '@shared/protocol'
 // ─── Mocks ──────────────────────────────────────────────────────
 
 // Mock @mediapipe/tasks-vision before importing any modules that depend on it
-const mockDetectForVideo = vi.fn<[video: unknown, timestamp: number], HandLandmarkerResult>()
+const mockDetectForVideo = vi.fn<(video: unknown, timestamp: number) => HandLandmarkerResult>()
 const mockClose = vi.fn()
 const mockCreateFromOptions = vi.fn()
 const mockForVisionTasks = vi.fn()

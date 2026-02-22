@@ -66,6 +66,11 @@ let canvas: OffscreenCanvas | null = null
 let ctx: OffscreenCanvasRenderingContext2D | null = null
 let frameId = 0
 let config: Required<TrackingWorkerConfig> = { ...DEFAULT_CONFIG }
+/** Guard flag: skip incoming frames while the previous one is still being processed. */
+let processingFrame = false
+/** Cached canvas dimensions to avoid unnecessary resize operations. */
+let canvasWidth = 0
+let canvasHeight = 0
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -162,13 +167,28 @@ async function initializeMediaPipe(
 
 function processFrame(imageBitmap: ImageBitmap): void {
   if (!handLandmarker || !canvas || !ctx) {
+    imageBitmap.close()
     postError('Worker not initialized — call init first')
     return
   }
 
+  // Skip this frame if we are still processing the previous one
+  if (processingFrame) {
+    imageBitmap.close()
+    return
+  }
+
+  processingFrame = true
+
+  // Only resize the canvas when dimensions actually change
+  if (canvasWidth !== imageBitmap.width || canvasHeight !== imageBitmap.height) {
+    canvas.width = imageBitmap.width
+    canvas.height = imageBitmap.height
+    canvasWidth = imageBitmap.width
+    canvasHeight = imageBitmap.height
+  }
+
   // Draw the ImageBitmap onto the OffscreenCanvas so MediaPipe can read it
-  canvas.width = imageBitmap.width
-  canvas.height = imageBitmap.height
   ctx.drawImage(imageBitmap, 0, 0)
 
   // Close the ImageBitmap to free memory (it was transferred)
@@ -185,6 +205,8 @@ function processFrame(imageBitmap: ImageBitmap): void {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     postError(`Detection error (frame ${frameId}): ${message}`)
+  } finally {
+    processingFrame = false
   }
 }
 
@@ -237,6 +259,9 @@ function teardown(): void {
   canvas = null
   ctx = null
   frameId = 0
+  processingFrame = false
+  canvasWidth = 0
+  canvasHeight = 0
 }
 
 // ─── Message Handler ─────────────────────────────────────────────

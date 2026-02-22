@@ -17,8 +17,8 @@ const mockDestroy = vi.fn()
 const mockOnFrame = vi.fn()
 const mockOnError = vi.fn()
 
-vi.mock('../../tracker/HandTracker', () => ({
-  HandTracker: vi.fn().mockImplementation(() => ({
+vi.mock('../../tracker/HandTracker', () => {
+  const ctor = vi.fn().mockImplementation(() => ({
     initialize: mockInitialize,
     start: mockStart,
     stop: mockStop,
@@ -27,7 +27,30 @@ vi.mock('../../tracker/HandTracker', () => ({
     onError: mockOnError,
     isRunning: false
   }))
-}))
+  // Static method used by the camera enumeration effect
+  ;(ctor as unknown as Record<string, unknown>).enumerateVideoDevices = vi.fn().mockResolvedValue([])
+  return { HandTracker: ctor }
+})
+
+// Ensure navigator.mediaDevices is available in the test environment
+if (!globalThis.navigator?.mediaDevices) {
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      ...globalThis.navigator,
+      mediaDevices: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }),
+        enumerateDevices: vi.fn().mockResolvedValue([])
+      }
+    },
+    writable: true,
+    configurable: true
+  })
+} else if (!globalThis.navigator.mediaDevices.addEventListener) {
+  globalThis.navigator.mediaDevices.addEventListener = vi.fn()
+  globalThis.navigator.mediaDevices.removeEventListener = vi.fn()
+}
 
 import { useHandTracker } from '../useHandTracker'
 import type { UseHandTrackerOptions, UseHandTrackerResult } from '../useHandTracker'
@@ -66,12 +89,14 @@ describe('useHandTracker', () => {
       frame: null,
       error: null,
       isInitialized: false,
-      isTracking: false
+      isTracking: false,
+      cameraCount: 0
     }
     expect(result.frame).toBeNull()
     expect(result.error).toBeNull()
     expect(result.isInitialized).toBe(false)
     expect(result.isTracking).toBe(false)
+    expect(result.cameraCount).toBe(0)
   })
 
   it('should accept disabled option without error', () => {

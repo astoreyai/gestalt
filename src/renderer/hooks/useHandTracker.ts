@@ -6,7 +6,7 @@
  * When tracking is disabled or fails, the app continues without tracking.
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { HandTracker } from '../tracker/HandTracker'
 import type { LandmarkFrame } from '@shared/protocol'
 
@@ -28,6 +28,8 @@ export interface UseHandTrackerResult {
   isInitialized: boolean
   /** Whether the tracker is actively processing frames */
   isTracking: boolean
+  /** Number of detected video input devices (cameras) */
+  cameraCount: number
 }
 
 export function useHandTracker(options: UseHandTrackerOptions): UseHandTrackerResult {
@@ -35,7 +37,26 @@ export function useHandTracker(options: UseHandTrackerOptions): UseHandTrackerRe
   const [error, setError] = useState<Error | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   const [isTracking, setIsTracking] = useState(false)
+  const [cameraCount, setCameraCount] = useState(0)
   const trackerRef = useRef<HandTracker | null>(null)
+
+  // Enumerate cameras once on mount (and on devicechange)
+  const enumerateCameras = useCallback(async () => {
+    try {
+      const cameras = await HandTracker.enumerateVideoDevices()
+      setCameraCount(cameras.length)
+    } catch {
+      // Enumeration failed — leave count as-is
+    }
+  }, [])
+
+  useEffect(() => {
+    enumerateCameras()
+    navigator.mediaDevices.addEventListener('devicechange', enumerateCameras)
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', enumerateCameras)
+    }
+  }, [enumerateCameras])
 
   useEffect(() => {
     if (!options.enabled) {
@@ -87,5 +108,5 @@ export function useHandTracker(options: UseHandTrackerOptions): UseHandTrackerRe
     }
   }, [options.enabled, options.smoothingFactor, options.minConfidence])
 
-  return { frame, error, isInitialized, isTracking }
+  return { frame, error, isInitialized, isTracking, cameraCount }
 }

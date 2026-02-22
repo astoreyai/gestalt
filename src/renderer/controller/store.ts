@@ -95,16 +95,10 @@ export const useDataStore = create<DataState>((set) => ({
   // We null out first in a separate set() call to break any closure references
   // that might hold the old data, then assign the new data.
   setGraphData: (data) => {
-    set({ graphData: null })
-    if (data !== null) {
-      set({ graphData: data })
-    }
+    set({ graphData: data })
   },
   setEmbeddingData: (data) => {
-    set({ embeddingData: null })
-    if (data !== null) {
-      set({ embeddingData: data })
-    }
+    set({ embeddingData: data })
   },
 }))
 
@@ -125,9 +119,13 @@ export const useGestureStore = create<GestureSliceState>((set) => ({
 
 export const useConfigStore = create<ConfigState>((set) => ({
   config: DEFAULT_CONFIG,
-  updateConfig: (partial) => set((state) => ({
-    config: { ...state.config, ...partial }
-  })),
+  updateConfig: (partial) => {
+    set((state) => ({
+      config: { ...state.config, ...partial }
+    }))
+    // Auto-persist to disk via IPC (fire-and-forget)
+    window.api?.setConfig(partial).catch(() => {})
+  },
   calibrated: false,
   setCalibrated: (calibrated) => set({ calibrated }),
 }))

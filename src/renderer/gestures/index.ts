@@ -46,3 +46,9 @@ export {
   ONE_HANDED_MAPPINGS,
   getOneHandedMappings
 } from './one-handed'
+
+// Two-hand coordinator
+export {
+  TwoHandCoordinator,
+  type TwoHandCoordResult
+} from './two-hand-coordinator'

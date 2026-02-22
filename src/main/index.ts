@@ -21,6 +21,13 @@ process.on('uncaughtException', (error) => {
   console.error('[Main] Uncaught exception:', error.message)
 })
 
+// Force ANGLE GL backend and disable Vulkan to suppress driver warnings
+if (app.commandLine) {
+  app.commandLine.appendSwitch('use-angle', 'gl')
+  app.commandLine.appendSwitch('use-gl', 'angle')
+  app.commandLine.appendSwitch('disable-vulkan')
+}
+
 let mainWindow: BrowserWindow | null = null
 let busServer: BusServer | null = null
 

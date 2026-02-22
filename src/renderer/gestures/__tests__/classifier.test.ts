@@ -700,12 +700,12 @@ describe('GestureStateMachine', () => {
     expect(sm.getState()).toBe(GestureState.Release)
   })
 
-  it('should stay in hold while still detected', () => {
+  it('should continue emitting Hold while still detected', () => {
     sm.update(true, 0)
     sm.update(true, 16)
     sm.update(true, 32) // -> hold
     const phase = sm.update(true, 48)
-    expect(phase).toBeNull()
+    expect(phase).toBe(GesturePhase.Hold)
     expect(sm.getState()).toBe(GestureState.Hold)
   })
 

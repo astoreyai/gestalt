@@ -173,8 +173,7 @@ export const Nodes = React.memo(function Nodes({
       const baseSize = Math.max(0.1, node.size ?? DEFAULT_SIZE)
       const isSelected = node.id === selectedId
       const isHovered = node.id === hoveredId
-      // Scale up selected node 2x, hovered 1.4x
-      const size = isSelected ? baseSize * 2.0 : isHovered ? baseSize * 1.4 : baseSize
+      const size = baseSize
 
       _dummy.position.set(pos.x, pos.y, pos.z)
       _dummy.scale.setScalar(size)

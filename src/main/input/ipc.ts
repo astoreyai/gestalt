@@ -18,11 +18,11 @@ export class InputIpcHandler {
   private enabled = true
 
   // Stored handler references for proper cleanup
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   private _mouseHandler: ((...args: any[]) => void) | null = null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   private _keyboardHandler: ((...args: any[]) => void) | null = null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   private _gestureHandler: ((...args: any[]) => void) | null = null
 
   constructor() {

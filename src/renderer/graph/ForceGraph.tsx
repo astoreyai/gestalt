@@ -13,6 +13,7 @@ import React, {
   forwardRef
 } from 'react'
 import { useThree } from '@react-three/fiber'
+import { Vector2, Vector3, Raycaster } from 'three'
 import type { GraphData } from '@shared/protocol'
 import { Nodes, type NodePosition } from './Nodes'
 import { Edges } from './Edges'
@@ -30,6 +31,10 @@ export interface ForceGraphProps {
   data: GraphData
   /** Currently selected node id (from store) */
   selectedNodeId?: string | null
+  /** Normalized hand positions for gesture-based hover (0..1 screen coords), one per hand */
+  gesturePositions?: Array<{ x: number; y: number }>
+  /** Drag nodes: project hand positions to 3D and override node positions */
+  dragPositions?: Array<{ nodeId: string; x: number; y: number }>
   /** Callback when a node is clicked */
   onNodeClick?: (id: string) => void
   /** Callback when a node is hovered */
@@ -42,7 +47,7 @@ export interface ForceGraphProps {
  * renders nodes/edges via instanced rendering.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
-  function ForceGraph({ data, selectedNodeId, onNodeClick, onNodeHover }, ref) {
+  function ForceGraph({ data, selectedNodeId, gesturePositions, dragPositions, onNodeClick, onNodeHover }, ref) {
     const { camera } = useThree()
     const [positions, setPositions] = useState<Map<string, NodePosition>>(
       () => new Map()
@@ -138,6 +143,103 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       },
       [onNodeHover]
     )
+
+    // Gesture-based hover: cast rays from camera through each hand's finger position
+    useEffect(() => {
+      if (!gesturePositions || gesturePositions.length === 0) return
+      const pos = positionsRef.current
+      if (pos.size === 0) return
+
+      const raycaster = new Raycaster()
+      const v = new Vector3()
+      let closestId: string | null = null
+      let closestDist = Infinity
+
+      // Check all hand positions, find the single closest node across all hands
+      for (const gp of gesturePositions) {
+        const ndc = new Vector2(gp.x * 2 - 1, -(gp.y * 2 - 1))
+        raycaster.setFromCamera(ndc, camera)
+        const ray = raycaster.ray
+
+        for (const [id, nodePos] of pos) {
+          v.set(nodePos.x, nodePos.y, nodePos.z)
+          const dist = ray.distanceToPoint(v)
+          if (dist < closestDist) {
+            closestDist = dist
+            closestId = id
+          }
+        }
+      }
+
+      if (closestId && closestDist < 8) {
+        handleNodeHover(closestId)
+      } else {
+        handleNodeHover(null)
+      }
+    }, [gesturePositions, camera, handleNodeHover])
+
+    // Multi-drag: hand must reach the node (ray proximity) before dragging begins.
+    // Once grabbed, node follows hand movement as a delta (no snapping).
+    const dragOffsetsRef = useRef<Map<string, Vector3>>(new Map())
+    const dragActiveRef = useRef<Set<string>>(new Set())
+
+    useEffect(() => {
+      if (!dragPositions || dragPositions.length === 0) {
+        // Clear drag state when no drags active
+        dragOffsetsRef.current.clear()
+        dragActiveRef.current.clear()
+        return
+      }
+
+      const raycaster = new Raycaster()
+      let updated: Map<string, NodePosition> | null = null
+      const GRAB_THRESHOLD = 8 // world units — ray must be within this to grab
+
+      for (const dp of dragPositions) {
+        const pos = updated ?? positionsRef.current
+        const nodePos = pos.get(dp.nodeId)
+        if (!nodePos) continue
+
+        const ndc = new Vector2(dp.x * 2 - 1, -(dp.y * 2 - 1))
+        raycaster.setFromCamera(ndc, camera)
+
+        const nodeVec = new Vector3(nodePos.x, nodePos.y, nodePos.z)
+        const distToCamera = nodeVec.distanceTo(camera.position)
+        const handWorldPos = raycaster.ray.at(distToCamera, new Vector3())
+
+        // Check if this drag is already active (hand already grabbed the node)
+        if (!dragActiveRef.current.has(dp.nodeId)) {
+          // Not yet grabbed — check if hand ray is close enough to the node
+          const rayDist = raycaster.ray.distanceToPoint(nodeVec)
+          if (rayDist > GRAB_THRESHOLD) continue // Hand hasn't reached the node yet
+
+          // Grab! Record the offset between hand position and node position
+          dragActiveRef.current.add(dp.nodeId)
+          dragOffsetsRef.current.set(dp.nodeId, nodeVec.clone().sub(handWorldPos))
+        }
+
+        // Apply hand position + preserved offset so node doesn't snap
+        const offset = dragOffsetsRef.current.get(dp.nodeId) ?? new Vector3()
+        const newPos = handWorldPos.add(offset)
+
+        if (!updated) updated = new Map(positionsRef.current)
+        updated.set(dp.nodeId, { x: newPos.x, y: newPos.y, z: newPos.z })
+      }
+
+      // Clean up drags that are no longer in the list
+      const activeNodeIds = new Set(dragPositions.map(dp => dp.nodeId))
+      for (const id of dragActiveRef.current) {
+        if (!activeNodeIds.has(id)) {
+          dragActiveRef.current.delete(id)
+          dragOffsetsRef.current.delete(id)
+        }
+      }
+
+      if (updated) {
+        positionsRef.current = updated
+        setPositions(updated)
+      }
+    }, [dragPositions, camera])
 
     return (
       <group>

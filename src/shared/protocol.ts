@@ -23,11 +23,15 @@ export interface Hand {
   score: number // Detection confidence [0, 1]
 }
 
+/** Camera source identifier for stereo tracking */
+export type CameraSource = 'primary' | 'secondary' | 'stereo'
+
 /** A single frame of tracking data */
 export interface LandmarkFrame {
   hands: Hand[]
   timestamp: number // performance.now()
   frameId: number
+  cameraId?: CameraSource // Source identifier for dual-camera / stereo setups
 }
 
 // ─── MediaPipe Landmark Indices ───────────────────────────────────
@@ -64,6 +68,8 @@ export enum GestureType {
   OpenPalm = 'open_palm',
   Twist = 'twist',
   TwoHandPinch = 'two_hand_pinch',
+  TwoHandRotate = 'two_hand_rotate',
+  TwoHandPush = 'two_hand_push',
   FlatDrag = 'flat_drag',
   Fist = 'fist',
   LShape = 'l_shape'
@@ -211,6 +217,10 @@ export interface AppConfig {
     cooldownDuration: number // ms after release before re-trigger
     sensitivity: number // 0-1, higher = more sensitive
     oneHandedMode: boolean // Use single-hand gestures for all actions (accessibility)
+    twoHandOnsetGrace: number // ms grace period for second hand onset alignment
+    dollyZThreshold: number // normalized z-delta threshold for dolly detection
+    dollySpeed: number // multiplier for dolly camera movement
+    orbitSpeed: number // multiplier for orbit camera movement
   }
   input: {
     mouseSpeed: number // Multiplier for cursor movement
@@ -235,10 +245,14 @@ export const DEFAULT_CONFIG: AppConfig = {
     minConfidence: 0.7
   },
   gestures: {
-    minHoldDuration: 80,
-    cooldownDuration: 120,
+    minHoldDuration: 40,
+    cooldownDuration: 80,
     sensitivity: 0.5,
-    oneHandedMode: false
+    oneHandedMode: false,
+    twoHandOnsetGrace: 100,
+    dollyZThreshold: 0.02,
+    dollySpeed: 1.0,
+    orbitSpeed: 1.0
   },
   input: {
     mouseSpeed: 1.0,

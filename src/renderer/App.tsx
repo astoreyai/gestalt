@@ -38,6 +38,7 @@ export function App(): React.ReactElement {
   // full-tree re-renders when any unrelated slice changes.
   const viewMode = useVisualStore((s) => s.viewMode)
   const selectedNodeId = useVisualStore((s) => s.selectedNodeId)
+  const hoveredNodeId = useVisualStore((s) => s.hoveredNodeId)
   const selectedClusterId = useVisualStore((s) => s.selectedClusterId)
   const selectNode = useVisualStore((s) => s.selectNode)
   const hoverNode = useVisualStore((s) => s.hoverNode)
@@ -84,12 +85,28 @@ export function App(): React.ReactElement {
 
   const orbitRef = useRef<OrbitControlsImpl>(null)
   const gestureEngineRef = useRef<GestureEngine | null>(null)
-  const prevHandPosRef = useRef<{ x: number; y: number } | null>(null)
+
+  // Per-hand tracking state (refs to avoid re-render thrashing)
+  const prevHandPosRef = useRef<{ left: { x: number; y: number } | null; right: { x: number; y: number } | null }>({ left: null, right: null })
+  const lastHoveredRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null })
+  const perHandSelectionRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null })
+
+  // Per-hand gesture hover positions (for ForceGraph raycasting)
+  const [gestureHoverPos, setGestureHoverPos] = useState<{
+    left: { x: number; y: number } | null
+    right: { x: number; y: number } | null
+  }>({ left: null, right: null })
+
+  // Per-hand drag positions
+  const [dragPositions, setDragPositions] = useState<{
+    left: { nodeId: string; x: number; y: number } | null
+    right: { nodeId: string; x: number; y: number } | null
+  }>({ left: null, right: null })
 
   // Lazily create GestureEngine (persists across renders)
   if (!gestureEngineRef.current) {
     gestureEngineRef.current = new GestureEngine({
-      minOnsetFrames: config.gestures.minHoldDuration <= 50 ? 1 : 2,
+      minOnsetFrames: 1,
       minHoldDuration: config.gestures.minHoldDuration,
       cooldownDuration: config.gestures.cooldownDuration,
       sensitivity: config.gestures.sensitivity
@@ -97,7 +114,7 @@ export function App(): React.ReactElement {
   }
 
   // Hand tracking via hook — graceful degradation on failure
-  const { frame: landmarkFrame, error: trackerError } = useHandTracker({
+  const { frame: landmarkFrame, error: trackerError, cameraCount } = useHandTracker({
     enabled: trackingEnabled,
     smoothingFactor: config.tracking.smoothingFactor,
     minConfidence: config.tracking.minConfidence
@@ -110,7 +127,16 @@ export function App(): React.ReactElement {
     }
   }, [trackerError, addToast])
 
-  // Process landmark frames through GestureEngine → store → dispatcher → scene
+  // Track last hovered node so pinch can select it even after point releases
+  // (mouse hover updates both hands since it's not hand-specific)
+  useEffect(() => {
+    if (hoveredNodeId) {
+      lastHoveredRef.current.left = hoveredNodeId
+      lastHoveredRef.current.right = hoveredNodeId
+    }
+  }, [hoveredNodeId])
+
+  // Process landmark frames through GestureEngine → dispatcher → scene (per-hand)
   useEffect(() => {
     if (!landmarkFrame || !trackingEnabled) return
 
@@ -119,117 +145,168 @@ export function App(): React.ReactElement {
 
     const events = engine.processFrame(landmarkFrame)
 
-    // Find the most important event (prefer Hold/Onset over Release)
-    let bestEvent: GestureEvent | null = null
-    for (const ev of events) {
-      if (ev.phase === GesturePhase.Hold || ev.phase === GesturePhase.Onset) {
-        bestEvent = ev
-        break
+    // Split events by hand and pick the best event per hand
+    const leftEvents = events.filter(ev => ev.hand === 'left')
+    const rightEvents = events.filter(ev => ev.hand === 'right')
+
+    const pickBest = (evs: GestureEvent[]): GestureEvent | null => {
+      let best: GestureEvent | null = null
+      let bestScore = -1
+      for (const ev of evs) {
+        const phaseScore = ev.phase === GesturePhase.Onset ? 2 : ev.phase === GesturePhase.Hold ? 1 : 0
+        const score = phaseScore + ev.confidence
+        if (score > bestScore) {
+          bestScore = score
+          best = ev
+        }
       }
-    }
-    // If only release events, pick the first
-    if (!bestEvent && events.length > 0) {
-      bestEvent = events[0]
+      return best
     }
 
-    // Push into the store so GestureOverlay can render it
-    setActiveGesture(bestEvent)
+    const bestLeft = pickBest(leftEvents)
+    const bestRight = pickBest(rightEvents)
 
-    if (!bestEvent) {
-      prevHandPosRef.current = null
-      return
-    }
+    // Push most significant event into store for GestureOverlay
+    setActiveGesture(bestLeft ?? bestRight)
 
-    // Dispatch through the gesture→action mapper
-    const action: SceneAction = dispatchGesture(bestEvent, {
-      viewMode,
-      selectedNodeId,
-      selectedClusterId,
-      oneHandedMode: config.gestures.oneHandedMode
-    })
+    // Per-hand action processing
+    const newHover = { ...gestureHoverPos }
+    const newDrag = { ...dragPositions }
+    let hoverChanged = false
+    let dragChanged = false
 
-    if (action.type === 'noop') return
+    const processHand = (event: GestureEvent | null, hand: 'left' | 'right'): void => {
+      if (!event) {
+        prevHandPosRef.current[hand] = null
+        if (newHover[hand] !== null) { newHover[hand] = null; hoverChanged = true }
+        if (newDrag[hand] !== null) { newDrag[hand] = null; dragChanged = true }
+        return
+      }
 
-    const controls = orbitRef.current
-    const handPos = bestEvent.position
+      // Dispatch with per-hand selected node
+      const action: SceneAction = dispatchGesture(event, {
+        viewMode,
+        selectedNodeId: perHandSelectionRef.current[hand],
+        selectedClusterId,
+        oneHandedMode: config.gestures.oneHandedMode
+      })
 
-    switch (action.type) {
-      case 'select': {
-        // Find closest graph node to the hand's normalized screen position
-        if (graphData && (viewMode === 'graph' || viewMode === 'split')) {
-          // TODO: proper raycasting. For now, cycle selection on pinch.
-          const nodes = graphData.nodes
-          if (nodes.length > 0) {
-            const currentIdx = nodes.findIndex(n => n.id === selectedNodeId)
-            const nextIdx = (currentIdx + 1) % nodes.length
-            selectNode(nodes[nextIdx].id)
+      if (action.type === 'noop') {
+        if (newHover[hand] !== null) { newHover[hand] = null; hoverChanged = true }
+        if (newDrag[hand] !== null) { newDrag[hand] = null; dragChanged = true }
+        prevHandPosRef.current[hand] = { x: event.position.x, y: event.position.y }
+        return
+      }
+
+      const controls = orbitRef.current
+      const handPos = event.position
+
+      switch (action.type) {
+        case 'select': {
+          const target = hoveredNodeId ?? lastHoveredRef.current[hand]
+          if (target) {
+            const current = perHandSelectionRef.current[hand]
+            if (current === target) {
+              // Deselect if same node
+              perHandSelectionRef.current[hand] = null
+              // Only clear global if no hand holds it
+              if (perHandSelectionRef.current.left !== target && perHandSelectionRef.current.right !== target) {
+                selectNode(null)
+              }
+            } else {
+              perHandSelectionRef.current[hand] = target
+              selectNode(target)
+            }
           }
+          break
         }
-        break
-      }
-      case 'deselect':
-        selectNode(null)
-        selectCluster(null)
-        break
-      case 'rotate': {
-        if (!controls) break
-        const angle = (action.params.angle as number) * 0.05
-        controls.autoRotate = false
-        const rt = controls.target
-        const cam = controls.object
-        const ox = cam.position.x - rt.x
-        const oz = cam.position.z - rt.z
-        const cos = Math.cos(angle)
-        const sin = Math.sin(angle)
-        cam.position.x = rt.x + ox * cos - oz * sin
-        cam.position.z = rt.z + ox * sin + oz * cos
-        cam.lookAt(rt)
-        controls.update()
-        break
-      }
-      case 'pan': {
-        if (!controls) break
-        // Compute delta from previous hand position (not absolute)
-        const prev = prevHandPosRef.current
-        if (prev) {
-          const dx = (handPos.x - prev.x) * 30
-          const dy = (handPos.y - prev.y) * 30
-          controls.target.x -= dx
-          controls.target.y += dy
-          controls.object.position.x -= dx
-          controls.object.position.y += dy
+        case 'deselect':
+          perHandSelectionRef.current[hand] = null
+          // Only clear global if neither hand has a selection
+          if (!perHandSelectionRef.current.left && !perHandSelectionRef.current.right) {
+            selectNode(null)
+            selectCluster(null)
+          }
+          break
+        case 'rotate': {
+          if (!controls) break
+          const angle = (action.params.angle as number) * 0.05
+          controls.autoRotate = false
+          const rt = controls.target
+          const cam = controls.object
+          const ox = cam.position.x - rt.x
+          const oz = cam.position.z - rt.z
+          const cos = Math.cos(angle)
+          const sin = Math.sin(angle)
+          cam.position.x = rt.x + ox * cos - oz * sin
+          cam.position.z = rt.z + ox * sin + oz * cos
+          cam.lookAt(rt)
           controls.update()
+          break
         }
-        break
-      }
-      case 'zoom': {
-        if (!controls) break
-        const delta = (action.params.delta as number) * 0.5
-        const camera = controls.object
-        const direction = controls.target.clone().sub(camera.position).normalize()
-        camera.position.addScaledVector(direction, delta)
-        controls.update()
-        break
-      }
-      case 'navigate':
-        if (controls) {
-          const x = action.params.x as number
-          const y = action.params.y as number
-          const z = action.params.z as number
-          controls.target.set(x * 50, y * 50, z * 50)
+        case 'pan': {
+          if (!controls) break
+          const prev = prevHandPosRef.current[hand]
+          if (prev) {
+            const dx = (handPos.x - prev.x) * 30
+            const dy = (handPos.y - prev.y) * 30
+            controls.target.x -= dx
+            controls.target.y += dy
+            controls.object.position.x -= dx
+            controls.object.position.y += dy
+            controls.update()
+          }
+          break
+        }
+        case 'zoom': {
+          if (!controls) break
+          const delta = (action.params.delta as number) * 0.5
+          const camera = controls.object
+          const direction = controls.target.clone().sub(camera.position).normalize()
+          camera.position.addScaledVector(direction, delta)
           controls.update()
+          break
         }
-        break
+        case 'drag': {
+          const nodeId = perHandSelectionRef.current[hand]
+          if (nodeId) {
+            newDrag[hand] = { nodeId, x: handPos.x, y: handPos.y }
+            dragChanged = true
+          }
+          break
+        }
+        case 'navigate': {
+          newHover[hand] = { x: handPos.x, y: handPos.y }
+          hoverChanged = true
+          break
+        }
+      }
+
+      // Clear hover/drag for non-matching actions
+      if (action.type !== 'navigate' && newHover[hand] !== null) {
+        newHover[hand] = null
+        hoverChanged = true
+      }
+      if (action.type !== 'drag' && newDrag[hand] !== null) {
+        newDrag[hand] = null
+        dragChanged = true
+      }
+
+      prevHandPosRef.current[hand] = { x: handPos.x, y: handPos.y }
     }
 
-    // Track hand position for delta-based pan
-    prevHandPosRef.current = { x: handPos.x, y: handPos.y }
-  }, [landmarkFrame, trackingEnabled, viewMode, selectedNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData])
+    processHand(bestLeft, 'left')
+    processHand(bestRight, 'right')
+
+    // Batch state updates
+    if (hoverChanged) setGestureHoverPos(newHover)
+    if (dragChanged) setDragPositions(newDrag)
+  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData])
 
   // Update gesture engine config when settings change
   useEffect(() => {
     gestureEngineRef.current?.updateConfig({
-      minOnsetFrames: config.gestures.minHoldDuration <= 50 ? 1 : 2,
+      minOnsetFrames: 1,
       minHoldDuration: config.gestures.minHoldDuration,
       cooldownDuration: config.gestures.cooldownDuration,
       sensitivity: config.gestures.sensitivity
@@ -241,8 +318,46 @@ export function App(): React.ReactElement {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
 
   useEffect(() => {
-    window.api.listProfiles().then(setProfiles).catch(() => {})
-    window.api.getActiveProfile().then(setActiveProfileId).catch(() => {})
+    Promise.all([
+      window.api.listProfiles(),
+      window.api.getActiveProfile(),
+      window.api.getConfig()
+    ]).then(([loaded, activeId, persistedConfig]) => {
+      // Hydrate persisted config
+      if (persistedConfig) {
+        updateConfig(persistedConfig)
+      }
+
+      if (loaded.length === 0) {
+        // Seed default profile — no wizard, just go straight to app
+        const defaultProfile: CalibrationProfile = {
+          id: 'default',
+          name: 'Standard',
+          sensitivity: 0.5,
+          samples: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+        window.api.createProfile(defaultProfile).catch(() => {})
+        window.api.setActiveProfile(defaultProfile.id).catch(() => {})
+        setProfiles([defaultProfile])
+        setActiveProfileId(defaultProfile.id)
+      } else {
+        setProfiles(loaded)
+        setActiveProfileId(activeId)
+
+        // Apply active profile's sensitivity to gesture config
+        if (activeId) {
+          const active = loaded.find(p => p.id === activeId)
+          if (active) {
+            updateConfig({ gestures: { ...config.gestures, sensitivity: active.sensitivity } })
+          }
+        }
+      }
+      setCalibrated(true)
+    }).catch(() => {
+      setCalibrated(true)
+    })
   }, [])
 
   const handleSaveProfile = useCallback((profile: CalibrationProfile) => {
@@ -268,7 +383,12 @@ export function App(): React.ReactElement {
   const handleSetActiveProfile = useCallback((id: string) => {
     setActiveProfileId(id)
     window.api.setActiveProfile(id).catch(() => {})
-  }, [])
+    // Apply this profile's sensitivity immediately
+    const profile = profiles.find(p => p.id === id)
+    if (profile) {
+      updateConfig({ gestures: { ...config.gestures, sensitivity: profile.sensitivity } })
+    }
+  }, [profiles, config.gestures, updateConfig])
 
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 })
 
@@ -305,12 +425,8 @@ export function App(): React.ReactElement {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Show calibration on first run
-  useEffect(() => {
-    if (!calibrated && trackingEnabled) {
-      setActiveModal('calibration')
-    }
-  }, [calibrated, trackingEnabled, setActiveModal])
+  // No calibration popup on boot — default profile is seeded automatically.
+  // Users can open calibration from Settings > Tracking or HUD profile dropdown.
 
   // Escape key dismisses active modal
   useEffect(() => {
@@ -423,6 +539,8 @@ export function App(): React.ReactElement {
       <Canvas
         camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
+        frameloop="always"
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
         <ambientLight intensity={0.4} />
         <directionalLight position={[10, 10, 5]} intensity={0.8} />
@@ -432,6 +550,8 @@ export function App(): React.ReactElement {
             <ForceGraph
               data={graphData}
               selectedNodeId={selectedNodeId}
+              gesturePositions={[gestureHoverPos.left, gestureHoverPos.right].filter(Boolean) as Array<{ x: number; y: number }>}
+              dragPositions={[dragPositions.left, dragPositions.right].filter(Boolean) as Array<{ nodeId: string; x: number; y: number }>}
               onNodeClick={(id) => selectNode(id)}
               onNodeHover={(id) => hoverNode(id)}
             />
@@ -473,6 +593,10 @@ export function App(): React.ReactElement {
         hasManifold={hasManifold}
         nodeCount={graphData?.nodes.length ?? 0}
         pointCount={embeddingData?.points.length ?? 0}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+        onProfileChange={handleSetActiveProfile}
+        cameraCount={cameraCount}
       />
 
       {/* Selection Info Panel */}
@@ -570,6 +694,11 @@ export function App(): React.ReactElement {
             onConfigChange={updateConfig}
             onClose={handleCloseModal}
             onOpenCalibration={() => setActiveModal('calibration')}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onProfileChange={handleSetActiveProfile}
+            onCreateProfile={handleSaveProfile}
+            onDeleteProfile={handleDeleteProfile}
           />
         </>
       )}
