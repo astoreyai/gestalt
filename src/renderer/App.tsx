@@ -877,6 +877,7 @@ export function App(): React.ReactElement {
   const hasGraph = graphData !== null
   const hasManifold = embeddingData !== null
   const hasData = hasGraph || hasManifold
+  const onboardingComplete = useConfigStore((s) => s.config.onboardingComplete)
 
   // Memoize gesture/drag position arrays to preserve identity across renders
   const memoGesturePositions = useMemo(
@@ -1014,8 +1015,8 @@ export function App(): React.ReactElement {
             </>
           )}
 
-          {/* Placeholder when no data loaded (hide when modal is open to avoid text bleeding through) */}
-          {!hasData && activeModal === null && <PlaceholderScene onLoadSample={loadSample} />}
+          {/* Placeholder when no data loaded (hide when modal/onboarding is open to avoid text bleeding through) */}
+          {!hasData && activeModal === null && onboardingComplete && <PlaceholderScene onLoadSample={loadSample} />}
         </Suspense>
         <OrbitControls ref={orbitRef} enableDamping dampingFactor={0.1} />
         {import.meta.env.DEV && <Stats />}

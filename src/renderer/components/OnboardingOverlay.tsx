@@ -48,7 +48,7 @@ export function OnboardingOverlay(): React.ReactElement | null {
         position: 'absolute',
         inset: 0,
         zIndex: Z_INDEX.onboarding,
-        background: 'rgba(0,0,0,0.92)',
+        background: '#0a0a14',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
