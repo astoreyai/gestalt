@@ -15,6 +15,7 @@ import { createOverlayManager } from './overlay'
 import type { OverlayManager } from './overlay'
 import { InputIpcHandler } from './input/ipc'
 import { SystemTray } from './tray'
+import { getElectronFlags } from './platform'
 
 // ─── Global error handlers ──────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
@@ -30,9 +31,10 @@ if (app.commandLine) {
   app.commandLine.appendSwitch('use-angle', 'gl')
   app.commandLine.appendSwitch('use-gl', 'angle')
   app.commandLine.appendSwitch('disable-vulkan')
-  // Sprint 6b: Enable Ozone platform auto-detection for native Wayland support
-  if (process.platform === 'linux') {
-    app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+  // Platform-specific flags (e.g. Ozone on Wayland)
+  for (const flag of getElectronFlags()) {
+    const [key, val] = flag.replace(/^--/, '').split('=')
+    app.commandLine.appendSwitch(key, val ?? '')
   }
 }
 
@@ -56,7 +58,7 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false // Needed for native addon access via preload
+      sandbox: true
     },
     title: 'Gestalt — Hand-Tracked 3D Explorer'
   })

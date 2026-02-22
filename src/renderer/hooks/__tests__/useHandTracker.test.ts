@@ -151,7 +151,8 @@ describe('useHandTracker', () => {
 
     expect(HandTracker).toHaveBeenCalledWith({
       smoothing: { minCutoff: 0.5 },
-      minHandDetectionConfidence: 0.8
+      minHandDetectionConfidence: 0.8,
+      tremorCompensation: 0
     })
     expect(mockInitialize).toHaveBeenCalled()
   })

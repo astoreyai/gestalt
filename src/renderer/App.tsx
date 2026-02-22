@@ -30,6 +30,7 @@ import { ModalContainer } from './components/ModalContainer'
 import { SelectionPanel } from './components/SelectionPanel'
 import { HandChordOverlay } from './components/HandChordOverlay'
 import { GestureGuide } from './components/GestureGuide'
+import { OnboardingOverlay } from './components/OnboardingOverlay'
 import { UndoStack } from './controller/undo'
 import { useHandTracker } from './hooks/useHandTracker'
 import { validateData } from './data/validators'
@@ -41,7 +42,9 @@ import { HandMotionTracker } from './tracker/motion'
 import type { HandMotionMetrics } from './tracker/motion'
 import { TrackingQualityTracker } from './tracker/quality'
 import type { GraphData, EmbeddingData, CalibrationProfile, GestureEvent } from '@shared/protocol'
-import { GesturePhase } from '@shared/protocol'
+import { GesturePhase, LANDMARK } from '@shared/protocol'
+import { FatigueDetector, FatigueLevel } from './tracker/fatigue'
+import { playOnsetClick, shouldPlayOnsetSound } from './controller/onset-feedback'
 
 export function App(): React.ReactElement {
   // P1-21: Use individual slice selectors instead of useAppStore() to avoid
@@ -103,6 +106,8 @@ export function App(): React.ReactElement {
   const twoHandCoordRef = useRef<TwoHandCoordinator | null>(null)
   const motionTrackerRef = useRef<HandMotionTracker | null>(null)
   const qualityTrackerRef = useRef<TrackingQualityTracker | null>(null)
+  const fatigueDetectorRef = useRef(new FatigueDetector())
+  const fatigueWarnedRef = useRef(false)
   const undoStackRef = useRef(new UndoStack(20))
   const [motionMetrics, setMotionMetrics] = useState<HandMotionMetrics[]>([])
   const [trackingQuality, setTrackingQuality] = useState<number>(0)
@@ -150,7 +155,8 @@ export function App(): React.ReactElement {
   const { frame: landmarkFrame, error: trackerError, cameraCount } = useHandTracker({
     enabled: trackingEnabled,
     smoothingFactor: config.tracking.smoothingFactor,
-    minConfidence: config.tracking.minConfidence
+    minConfidence: config.tracking.minConfidence,
+    tremorCompensation: config.gestures.tremorCompensation
   })
 
   // Show toast when tracker fails
@@ -191,7 +197,31 @@ export function App(): React.ReactElement {
       setTrackingQuality(prev => Math.abs(prev - newQ) > 2 ? newQ : prev)
     }
 
+    // Fatigue detection — warn at 60s, critical at 90s sustained elevation
+    if (fatigueDetectorRef.current && landmarkFrame.hands.length > 0) {
+      for (const hand of landmarkFrame.hands) {
+        const wristY = hand.landmarks[LANDMARK.WRIST].y
+        const fatigueState = fatigueDetectorRef.current.update(hand.handedness, wristY, landmarkFrame.timestamp)
+        if (fatigueState.level === FatigueLevel.Warning && !fatigueWarnedRef.current) {
+          addToast('Arm fatigue detected — consider lowering your hand', 'warning')
+          fatigueWarnedRef.current = true
+        } else if (fatigueState.level === FatigueLevel.Critical && fatigueWarnedRef.current) {
+          addToast('Extended arm elevation — please take a break', 'error')
+          fatigueWarnedRef.current = false // Reset to re-warn after drop+re-raise
+        } else if (fatigueState.level === FatigueLevel.None) {
+          fatigueWarnedRef.current = false
+        }
+      }
+    }
+
     const events = engine.processFrame(landmarkFrame)
+
+    // Onset feedback — audio click on gesture onset
+    for (const ev of events) {
+      if (ev.phase === GesturePhase.Onset && shouldPlayOnsetSound('onset', config.audio?.onsetSound ?? true)) {
+        playOnsetClick()
+      }
+    }
 
     // In overlay mode, forward all events to main process for native input
     if (overlayMode) {
@@ -275,6 +305,13 @@ export function App(): React.ReactElement {
                 controls.object.position.addScaledVector(dir, dd * 10)
                 controls.update()
               }
+              break
+            case 'roll':
+            case 'scale_node':
+            case 'measure':
+            case 'fold':
+            case 'unfold':
+              addToast(`Two-hand: ${action.type}`, 'info')
               break
           }
         }
@@ -856,7 +893,7 @@ export function App(): React.ReactElement {
       {!overlayMode && <Canvas
         camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
-        frameloop="demand"
+        frameloop="always"
         dpr={Math.min(window.devicePixelRatio, 2)}
         gl={{ antialias: true, powerPreference: 'high-performance', stencil: false, alpha: false }}
       >
@@ -952,6 +989,8 @@ export function App(): React.ReactElement {
         motionMetrics={motionMetrics}
         showMotionMetrics={config.overlay.showMotionMetrics}
         showMotionTrail={config.overlay.showMotionTrail}
+        viewMode={viewMode}
+        hoverTarget={hoveredNodeId ? 'node' : null}
       />
 
       {/* Hand Chord Overlays */}
@@ -962,6 +1001,9 @@ export function App(): React.ReactElement {
 
       {/* Gesture Guide Overlay */}
       <GestureGuide visible={gestureGuideVisible} onClose={() => setGestureGuideVisible(false)} />
+
+      {/* Onboarding Overlay — first-launch guide */}
+      <OnboardingOverlay />
 
       {/* Toast Queue — hidden in overlay mode */}
       {!overlayMode && <ToastQueue toasts={toasts} onDismiss={removeToast} />}

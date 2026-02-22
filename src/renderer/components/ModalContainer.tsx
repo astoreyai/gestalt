@@ -4,8 +4,9 @@
  * Adds role="dialog" and aria-labelledby for accessibility.
  */
 
-import React from 'react'
+import React, { useRef } from 'react'
 import type { ModalId } from '../controller/store'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 export interface ModalContainerProps {
   activeModal: ModalId
@@ -21,6 +22,9 @@ const MODAL_LABELS: Record<string, string> = {
 }
 
 export function ModalContainer({ activeModal, onClose, children }: ModalContainerProps): React.ReactElement | null {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, activeModal !== null, onClose)
+
   if (activeModal === null) {
     return null
   }
@@ -42,6 +46,7 @@ export function ModalContainer({ activeModal, onClose, children }: ModalContaine
 
       {/* Dialog container */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-labelledby={labelId}
         aria-modal="true"

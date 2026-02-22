@@ -6,6 +6,7 @@
 
 import React, { useState, useCallback } from 'react'
 import { useConfigStore } from '../controller/store'
+import { COLORS } from '../styles/tokens'
 
 const STEPS = [
   {
@@ -55,7 +56,7 @@ export function OnboardingOverlay(): React.ReactElement | null {
     >
       <div
         style={{
-          background: '#1a1a2e',
+          background: COLORS.cardBg,
           borderRadius: 12,
           padding: 32,
           maxWidth: 440,
@@ -101,7 +102,7 @@ export function OnboardingOverlay(): React.ReactElement | null {
               onClick={isLast ? complete : () => setStep((s) => s + 1)}
               style={{
                 padding: '8px 16px',
-                background: '#4a9eff',
+                background: COLORS.accent,
                 border: 'none',
                 borderRadius: 6,
                 color: '#fff',

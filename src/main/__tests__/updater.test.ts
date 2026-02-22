@@ -99,7 +99,7 @@ describe('initUpdater', () => {
     expect(mockAutoUpdater.setFeedURL).toHaveBeenCalledWith({
       provider: 'github',
       owner: 'astoreyai',
-      repo: 'tracking'
+      repo: 'gestalt'
     })
   })
 

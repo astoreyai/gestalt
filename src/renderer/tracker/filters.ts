@@ -388,12 +388,24 @@ export class LandmarkSmoother {
   private _zMedian: MedianFilter3[]
   /** Pre-allocated output array to avoid per-frame allocations (P2-46) */
   private _outputBuffer: Landmark[]
+  /** Band-reject filters for tremor compensation (8-12Hz notch) */
+  private _bandRejectX: BandRejectFilter[] | null = null
+  private _bandRejectY: BandRejectFilter[] | null = null
+  private _bandRejectZ: BandRejectFilter[] | null = null
+  /** Whether z-normalization is enabled */
+  private _zNormalize: boolean
 
   constructor(
     private _config: OneEuroFilterConfig = {},
     private _numLandmarks: number = 21,
     /** Enable per-joint tuning. When false, uses uniform config (backward compat). */
-    private _perJoint: boolean = true
+    private _perJoint: boolean = true,
+    /** Tremor compensation level (0-1). When > 0, applies 8-12Hz band-reject filter. */
+    tremorCompensation: number = 0,
+    /** Enable z-normalization (palm centroid subtraction before One-Euro). */
+    zNormalize: boolean = true,
+    /** Camera sample rate in Hz for band-reject filter. Default: 60 */
+    sampleRate: number = 60
   ) {
     this._filters = Array.from({ length: _numLandmarks }, (_, i) => {
       if (_perJoint && i < JOINT_TIER.length && JOINT_TIER[i]) {
@@ -428,6 +440,14 @@ export class LandmarkSmoother {
     this._yMedian = Array.from({ length: _numLandmarks }, () => new MedianFilter3())
     this._zMedian = Array.from({ length: _numLandmarks }, () => new MedianFilter3())
     this._outputBuffer = Array.from({ length: _numLandmarks }, () => ({ x: 0, y: 0, z: 0 }))
+    this._zNormalize = zNormalize
+
+    // Initialize band-reject filters when tremor compensation is enabled
+    if (tremorCompensation > 0) {
+      this._bandRejectX = Array.from({ length: _numLandmarks }, () => new BandRejectFilter(10, 4, sampleRate))
+      this._bandRejectY = Array.from({ length: _numLandmarks }, () => new BandRejectFilter(10, 4, sampleRate))
+      this._bandRejectZ = Array.from({ length: _numLandmarks }, () => new BandRejectFilter(10, 4, sampleRate))
+    }
   }
 
   /**
@@ -446,25 +466,51 @@ export class LandmarkSmoother {
     }
 
     const out = output ?? this._outputBuffer
+
+    // Step 1: Median pre-filter all axes (rejects single-frame spikes)
     for (let i = 0; i < this._numLandmarks; i++) {
       const lm = landmarks[i]
-      const f = this._filters[i]
-      // Median pre-filter all axes then One-Euro
-      const xMedian = this._xMedian[i].filter(lm.x)
-      const yMedian = this._yMedian[i].filter(lm.y)
-      const zMedian = this._zMedian[i].filter(lm.z)
-      // Reuse existing object in the output array if available
+      // Median must run on raw values BEFORE z-normalization so that a
+      // single-frame z-spike doesn't shift the centroid and pollute all landmarks.
       if (out[i]) {
-        out[i].x = f.x.filter(xMedian, timestamp)
-        out[i].y = f.y.filter(yMedian, timestamp)
-        out[i].z = f.z.filter(zMedian, timestamp)
+        out[i].x = this._xMedian[i].filter(lm.x)
+        out[i].y = this._yMedian[i].filter(lm.y)
+        out[i].z = this._zMedian[i].filter(lm.z)
       } else {
         out[i] = {
-          x: f.x.filter(xMedian, timestamp),
-          y: f.y.filter(yMedian, timestamp),
-          z: f.z.filter(zMedian, timestamp)
+          x: this._xMedian[i].filter(lm.x),
+          y: this._yMedian[i].filter(lm.y),
+          z: this._zMedian[i].filter(lm.z)
         }
       }
+    }
+
+    // Step 2: Z-normalization on median-filtered values (not raw)
+    let zCentroid = 0
+    if (this._zNormalize) {
+      zCentroid = normalizeZ(out)
+    }
+
+    // Step 3: Band-reject filter + One-Euro filter
+    for (let i = 0; i < this._numLandmarks; i++) {
+      const f = this._filters[i]
+      let xVal = out[i].x
+      let yVal = out[i].y
+      let zVal = out[i].z
+      // Band-reject filter for tremor compensation (8-12Hz notch)
+      if (this._bandRejectX) {
+        xVal = this._bandRejectX[i].filter(xVal)
+        yVal = this._bandRejectY![i].filter(yVal)
+        zVal = this._bandRejectZ![i].filter(zVal)
+      }
+      out[i].x = f.x.filter(xVal, timestamp)
+      out[i].y = f.y.filter(yVal, timestamp)
+      out[i].z = f.z.filter(zVal, timestamp)
+    }
+
+    // Denormalize z: restore original coordinate space
+    if (this._zNormalize && zCentroid !== 0) {
+      denormalizeZ(out, zCentroid)
     }
 
     return out

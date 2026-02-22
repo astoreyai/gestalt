@@ -17,6 +17,8 @@ export interface UseHandTrackerOptions {
   smoothingFactor?: number
   /** Minimum detection confidence (0-1). */
   minConfidence?: number
+  /** Tremor compensation level (0-1). 0 = off, 1 = maximum band-reject filtering. */
+  tremorCompensation?: number
 }
 
 export interface UseHandTrackerResult {
@@ -72,7 +74,8 @@ export function useHandTracker(options: UseHandTrackerOptions): UseHandTrackerRe
       smoothing: options.smoothingFactor !== undefined
         ? { minCutoff: options.smoothingFactor }
         : undefined,
-      minHandDetectionConfidence: options.minConfidence
+      minHandDetectionConfidence: options.minConfidence,
+      tremorCompensation: options.tremorCompensation ?? 0
     })
     trackerRef.current = tracker
 
@@ -106,7 +109,7 @@ export function useHandTracker(options: UseHandTrackerOptions): UseHandTrackerRe
       setIsTracking(false)
       setIsInitialized(false)
     }
-  }, [options.enabled, options.smoothingFactor, options.minConfidence])
+  }, [options.enabled, options.smoothingFactor, options.minConfidence, options.tremorCompensation])
 
   return { frame, error, isInitialized, isTracking, cameraCount }
 }

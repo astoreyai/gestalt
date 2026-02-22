@@ -51,10 +51,12 @@ export interface HandTrackerConfig {
   useWorker?: boolean
   /** Specific camera device ID (from enumerateVideoDevices). If omitted, uses default camera. */
   deviceId?: string
+  /** Tremor compensation level (0-1). 0 = off, 1 = maximum band-reject filtering. */
+  tremorCompensation?: number
 }
 
 const DEFAULT_CONFIG: Required<
-  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId'>
+  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId' | 'tremorCompensation'>
 > = {
   numHands: 2,
   minHandDetectionConfidence: 0.7,
@@ -92,7 +94,7 @@ export class HandTracker {
   private _onFrame: FrameCallback | null = null
   private _onError: ErrorCallback | null = null
 
-  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId'>>
+  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId' | 'tremorCompensation'>>
   private _videoConstraints: MediaStreamConstraints['video']
 
   // ── Worker Mode State ─────────────────────────────────────────
@@ -105,6 +107,8 @@ export class HandTracker {
   private _workerFallback = false
   /** Specific camera device ID (null = default camera). */
   private _deviceId: string | undefined
+  /** Tremor compensation level (0-1). */
+  private _tremorCompensation: number
 
   // ── Object Pool (avoids per-frame allocations) ────────────────
   /** Pre-allocated pool of Hand objects reused across frames. */
@@ -139,6 +143,7 @@ export class HandTracker {
     this._videoConstraints = config.videoConstraints ?? { width: 1280, height: 720, frameRate: { ideal: 120 } }
     this._useWorker = config.useWorker ?? false
     this._deviceId = config.deviceId
+    this._tremorCompensation = config.tremorCompensation ?? 0
   }
 
   /**
@@ -620,8 +625,21 @@ export class HandTracker {
   private _getOrCreateSmoother(index: number): LandmarkSmoother {
     let smoother = this._smoothers.get(index)
     if (!smoother) {
+      // Extract target camera fps for band-reject filter sample rate
+      let frameRate = 60
+      const vc = this._videoConstraints
+      if (typeof vc === 'object' && vc !== null && 'frameRate' in vc) {
+        const fr = vc.frameRate
+        if (typeof fr === 'number') frameRate = fr
+        else if (typeof fr === 'object' && fr) frameRate = (fr as { ideal?: number }).ideal ?? 60
+      }
       smoother = new LandmarkSmoother(
-        this._smoothingConfig as OneEuroFilterConfig
+        this._smoothingConfig as OneEuroFilterConfig,
+        21,    // numLandmarks
+        true,  // perJoint
+        this._tremorCompensation,
+        true,  // zNormalize
+        frameRate
       )
       this._smoothers.set(index, smoother)
     }

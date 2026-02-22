@@ -104,7 +104,8 @@ describe('Sprint 2d: DIP filter tier', () => {
 
   it('DIP z-axis has lower minCutoff than DIP xy-axis', () => {
     // Z-axis should be more smoothed (lower minCutoff = heavier filtering)
-    const smoother = new LandmarkSmoother()
+    // Disable z-normalization so z-axis step input reaches the filter directly
+    const smoother = new LandmarkSmoother({}, 21, true, 0, false)
 
     const stable = makeUniformLandmarks(0.0)
     smoother.smooth(stable, 0)

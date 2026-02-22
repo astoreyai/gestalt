@@ -54,7 +54,7 @@ export function initUpdater(options: UpdaterOptions = {}): void {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: owner ?? 'astoreyai',
-      repo: repo ?? 'tracking'
+      repo: repo ?? 'gestalt'
     })
   } else if (provider === 'generic' && url) {
     autoUpdater.setFeedURL({

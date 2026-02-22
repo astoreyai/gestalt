@@ -9,6 +9,7 @@ import type { LandmarkFrame, Landmark, Hand } from '@shared/protocol'
 import { LANDMARK } from '@shared/protocol'
 import { fingerCurl } from '../gestures/classifier'
 import type { FingerName } from '../gestures/types'
+import { COLORS } from '../styles/tokens'
 
 export interface HandChordOverlayProps {
   landmarkFrame: LandmarkFrame | null
@@ -246,7 +247,7 @@ export function HandChordOverlay({
       ctx.fill()
 
       // Border matching hand color
-      ctx.strokeStyle = hand.handedness === 'right' ? '#4a9eff' : '#6bcb77'
+      ctx.strokeStyle = hand.handedness === 'right' ? COLORS.handRight : COLORS.handLeft
       ctx.lineWidth = 1.5
       ctx.beginPath()
       ctx.roundRect(0, 0, PANEL_W, PANEL_H, 8)
