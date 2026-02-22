@@ -1,19 +1,27 @@
-# Tracking
+# Gestalt
 
-![Tests](https://img.shields.io/badge/tests-1040%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-1041%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
 
 ## Overview
 
-Tracking is a standalone Electron desktop application that lets users navigate 3D knowledge graphs and latent space manifolds using real-time hand gestures captured from a standard webcam. It combines MediaPipe hand tracking, Three.js 3D rendering, and a native Linux input addon to deliver sub-50ms end-to-end latency without any specialized hardware.
+Gestalt is a standalone Electron desktop application for navigating 3D knowledge graphs and latent space manifolds using real-time hand gestures captured from a standard webcam. It combines MediaPipe hand tracking, Three.js 3D rendering, and a native Linux input addon to deliver sub-50ms end-to-end latency without any specialized hardware.
+
+The name comes from the German word for "form" or "shape" — fitting for an app that gives shape to data through the shape of your hands.
+
+## Screenshots
+
+| Calibration Wizard | Graph View | Settings Panel |
+|:---:|:---:|:---:|
+| ![Calibration](docs/images/calibration-wizard.png) | ![Graph](docs/images/graph-view.png) | ![Settings](docs/images/settings-panel.png) |
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/astoreyai/tracking.git
-cd tracking
+cd gestalt
 npm install
 npm run native:build   # Compile the uinput addon (Linux only)
 npm run dev            # Launch with hot reload
@@ -23,36 +31,13 @@ To load sample data, open the app and use **File > Open** or drag-and-drop one o
 - `small-graph.json` — a small knowledge graph
 - `embeddings-5k.json` — a 5,000-point embedding manifold
 
-## Screenshots
-
-> **Note:** Screenshots have not yet been captured. To add them, run the app and take screenshots of the three views described below, then place the images in `docs/images/` and update the paths here.
-
-<!-- Capture instructions:
-1. Graph view:   Load small-graph.json, orbit to a good angle, take a screenshot.
-2. Manifold view: Load embeddings-5k.json, hover over a cluster, take a screenshot.
-3. Gesture overlay: Enable the gesture overlay (Settings > Show Overlay), perform a pinch gesture in front of the webcam, take a screenshot.
-
-Save images as:
-  docs/images/graph-view.png
-  docs/images/manifold-view.png
-  docs/images/gesture-overlay.png
-
-For an animated GIF demo:
-  - Use a screen recorder (e.g., peek, OBS, or gifski)
-  - Record ~15 seconds of gesture-driven navigation
-  - Save as docs/images/demo.gif
-  - Add: ![Demo](docs/images/demo.gif)
--->
-
-| Graph View | Manifold View | Gesture Overlay |
-|:---:|:---:|:---:|
-| *`docs/images/graph-view.png`* | *`docs/images/manifold-view.png`* | *`docs/images/gesture-overlay.png`* |
-
 ## Features
 
-- **Real-time hand tracking** -- MediaPipe Hand Landmarker with 21-landmark detection at 30+ FPS
-- **8 recognized gestures** -- pinch, point, open palm, twist, two-hand pinch, flat drag, fist, L-shape
-- **3D knowledge graph visualization** -- force-directed layouts with d3-force-3d, LOD, and PBR rendering
+- **Real-time hand tracking** -- MediaPipe Hand Landmarker with 21-landmark detection at 60 FPS
+- **10 recognized gestures** -- pinch, point, open palm, twist, flat drag, fist, L-shape, two-hand pinch, two-hand rotate, two-hand push
+- **Two-hand gesture combos** -- symmetric and asymmetric two-hand gestures with onset grace period alignment
+- **Stereo webcam tracking** -- dual-camera triangulation via StereoFuser for improved depth accuracy, with hot-plug detection
+- **3D knowledge graph visualization** -- force-directed layouts with d3-force-3d, instanced rendering, LOD, and PBR lighting
 - **Latent space manifold explorer** -- point cloud rendering with cluster visualization and hover cards
 - **OS-level cursor control** -- native N-API addon writes to Linux uinput for mouse and keyboard emulation
 - **WebSocket connector bus** -- external programs subscribe to gesture events via a token-authenticated bus on port 9876
@@ -71,14 +56,17 @@ For an animated GIF demo:
 +-----------------------------------------------------------------+
 |  Renderer Process (Chromium)                                    |
 |                                                                 |
-|  Webcam --> MediaPipe Hand Landmarker --> Gesture Classifier     |
-|                |                              |                 |
-|                v                              v                 |
-|         HandTracker              Dispatcher (gesture -> command) |
-|         (filters, normalize)          |                         |
-|                                       v                         |
-|  Three.js / React Three Fiber    Zustand Store                  |
-|  (ForceGraph, PointCloud, HUD)   (app state, config, profiles)  |
+|  Webcam(s) --> MediaPipe Hand Landmarker --> Gesture Classifier  |
+|                |              |                    |             |
+|                v              v                    v             |
+|         HandTracker    StereoFuser         TwoHandCoordinator   |
+|         (One-Euro)     (triangulation)     (combo matrix)       |
+|                |              |                    |             |
+|                v              v                    v             |
+|              GestureEngine (2D state grid)  --> Dispatcher       |
+|                                                    |             |
+|  Three.js / React Three Fiber              Zustand Store        |
+|  (ForceGraph, PointCloud, HUD)             (5 slices)           |
 |                                                                 |
 +---------+----------------------------+--+--------+--------------+
           |  IPC (Electron)            |           |
@@ -96,19 +84,46 @@ For an animated GIF demo:
   (/dev/uinput)                         (any WebSocket client)
 ```
 
-**Key data flows:**
+## Gesture Controls
 
-1. **Tracking pipeline** -- Webcam frames are processed by MediaPipe in the renderer, producing 21 normalized landmarks per hand at 30 FPS.
-2. **Gesture recognition** -- A feature extraction + classifier pipeline detects 8 gesture types with onset/hold/release phases.
-3. **Command dispatch** -- Recognized gestures map to mouse, keyboard, program, or built-in commands via the Zustand-backed dispatcher.
-4. **Native input** -- Mouse and keyboard commands are sent over IPC to the main process, which writes them to `/dev/uinput` through a C++ N-API addon.
-5. **Connector bus** -- Gesture events are broadcast over WebSocket to registered external programs, filtered by declared capabilities.
+### Single-Hand Gestures
+
+| Gesture | Action | Description |
+|---------|--------|-------------|
+| **Point** | Cursor move | Extend index finger to control the cursor |
+| **Pinch** | Click / Select | Touch index finger to thumb for click or selection |
+| **Pinch (hold)** | Drag | Hold pinch while moving hand to drag |
+| **Open Palm** | Release / Deselect | Open hand to deselect or trigger mapped shortcut |
+| **Twist** | Rotate | Twist thumb-to-index to rotate the scene |
+| **Flat Drag** | Pan | Flat hand drag to pan the scene |
+| **Fist** | Cancel / Escape | Close fist to cancel or press Escape |
+| **L-Shape** | Custom shortcut | L-shaped hand triggers a configurable key combo |
+
+### Two-Hand Gestures
+
+| Combo | Action | Description |
+|-------|--------|-------------|
+| **Both Pinch** | Scale / Zoom | Pinch with both hands, spread apart to zoom in |
+| **Both Twist** | Rotate | Twist both hands to orbit or roll the scene |
+| **Both Open Palm** | Dolly | Push both palms forward/back for dolly movement |
+| **Both Point** | Measure | Point with both hands to measure distance |
+| **Pinch + FlatDrag** | Scale | Asymmetric pinch+drag for scale control |
+| **Pinch + OpenPalm** | Unfold | Asymmetric pinch+palm to unfold clusters |
+
+## Stereo Tracking
+
+Gestalt supports dual-webcam stereo tracking for improved depth accuracy. The `StereoFuser` matches hands across two camera views and computes refined z-depth via horizontal disparity triangulation.
+
+- **Hot-plug detection**: cameras can be connected/disconnected at runtime
+- **Configurable baseline**: defaults to ~65mm (human IPD) for standard USB webcam pairs
+- **Graceful fallback**: automatically falls back to single-camera if only one is available
+- **HUD indicator**: stereo status shown in the heads-up display
 
 ## Prerequisites
 
 - **Linux** (Debian/Ubuntu recommended) -- the native uinput addon is Linux-only
 - **Node.js 20+** and npm
-- **Webcam** (minimum 720p)
+- **Webcam** (minimum 720p; two webcams for stereo tracking)
 - **C++ build tools** for the native addon: `build-essential`, `python3`
 
 ### uinput Permissions
@@ -130,7 +145,7 @@ sudo chmod 0660 /dev/uinput
 
 ```bash
 git clone https://github.com/astoreyai/tracking.git
-cd tracking
+cd gestalt
 npm install
 npm run native:build
 ```
@@ -155,29 +170,15 @@ npm run package:deb          # Package as .deb
 
 ### Other Commands
 
-| Command              | Description                          |
-|----------------------|--------------------------------------|
-| `npm test`           | Run all tests (vitest)               |
-| `npm run test:watch` | Run tests in watch mode              |
-| `npm run test:coverage` | Run tests with coverage report    |
-| `npm run lint`       | Lint source with ESLint              |
-| `npm run typecheck`  | Type-check without emitting          |
-| `npm run demo`       | Run the gesture demo (colored output)|
-| `npm run demo:bus`   | Run the WebSocket bus demo           |
-
-### Gesture Controls
-
-| Gesture            | Action               | Description                                       |
-|--------------------|----------------------|---------------------------------------------------|
-| **Point**          | Cursor move          | Extend index finger to control the cursor          |
-| **Pinch**          | Click / Select       | Touch index finger to thumb for click or selection |
-| **Pinch (hold)**   | Drag                 | Hold pinch while moving hand to drag               |
-| **Open Palm**      | Release / Deselect   | Open hand to deselect or trigger mapped shortcut   |
-| **Twist**          | Rotate               | Twist thumb-to-index to rotate the scene           |
-| **Two-Hand Pinch** | Zoom / Scroll        | Pinch with both hands to zoom in or out            |
-| **Flat Drag**      | Pan                  | Flat hand drag to pan the scene                    |
-| **Fist**           | Cancel / Escape      | Close fist to cancel or press Escape               |
-| **L-Shape**        | Custom shortcut      | L-shaped hand triggers a configurable key combo    |
+| Command | Description |
+|---------|-------------|
+| `npm test` | Run all tests (vitest) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:coverage` | Run tests with coverage report |
+| `npm run lint` | Lint source with ESLint |
+| `npm run typecheck` | Type-check without emitting |
+| `npm run demo` | Run the gesture demo (colored output) |
+| `npm run demo:bus` | Run the WebSocket bus demo |
 
 ## Configuration
 
@@ -193,8 +194,8 @@ interface AppConfig {
     minConfidence: number     // Minimum detection confidence (default: 0.7)
   }
   gestures: {
-    minHoldDuration: number   // ms before onset transitions to hold (default: 150)
-    cooldownDuration: number  // ms after release before re-trigger (default: 200)
+    minHoldDuration: number   // ms before onset transitions to hold (default: 80)
+    cooldownDuration: number  // ms after release before re-trigger (default: 120)
     sensitivity: number       // 0-1, higher = more sensitive (default: 0.5)
     oneHandedMode: boolean    // Single-hand mode for accessibility (default: false)
   }
@@ -287,158 +288,53 @@ Sample data files are included in `assets/samples/`.
 ## Testing
 
 ```bash
-npm test                 # Run all 1040+ tests
+npm test                 # Run all 1041 tests
 npm run test:coverage    # Run with coverage report (text, HTML, lcov)
 ```
 
 **Coverage thresholds** (enforced in CI):
 
-| Metric     | Threshold |
-|------------|-----------|
-| Statements | 90%       |
-| Branches   | 85%       |
-| Functions  | 90%       |
-| Lines      | 90%       |
+| Metric | Threshold |
+|--------|-----------|
+| Statements | 90% |
+| Branches | 85% |
+| Functions | 90% |
+| Lines | 90% |
 
-Tests use **Vitest** with **happy-dom** as the simulated browser environment and **@testing-library/react** for component testing.
-
-## Project Structure
-
-```
-src/
-  main/                         # Electron main process
-    bus/                        # WebSocket connector bus
-      connections.ts            #   Connection lifecycle management
-      fanout.ts                 #   Gesture event fan-out by capability
-      registry.ts               #   Program registration
-      server.ts                 #   WebSocket server with token auth
-    connectors/                 # External program SDK and examples
-      example.ts                #   Demo connector client
-      sdk.ts                    #   Node.js connector SDK
-      CONNECTORS.md             #   Protocol documentation
-    input/                      # OS-level input injection
-      ipc.ts                    #   IPC handler registration
-      keyboard.ts               #   Keyboard emulation via uinput
-      macros.ts                 #   Multi-step macro sequences
-      mouse.ts                  #   Mouse emulation via uinput
-    index.ts                    # Main process entry point
-    ipc-validators.ts           # IPC message validation (Zod)
-    persistence.ts              # Config and profile persistence
-    rate-limiter.ts             # Generic rate limiter
-    security.ts                 # Security utilities
-    tray.ts                     # System tray integration
-  preload/
-    index.ts                    # Context bridge (renderer <-> main)
-  renderer/                     # Electron renderer process (React)
-    components/                 # Shared UI components
-      HUD.tsx                   #   Heads-up display overlay
-      ModalContainer.tsx        #   Modal dialog system
-      SelectionPanel.tsx        #   Node/point selection details
-      ToastQueue.tsx            #   Toast notification queue
-    controller/                 # Gesture interpretation and dispatch
-      a11y.ts                   #   Accessibility utilities
-      Calibration.tsx           #   Calibration wizard UI
-      dispatcher.ts             #   Gesture-to-command dispatcher
-      focus.ts                  #   Focus trap management
-      gesture-labels.ts         #   Human-readable gesture labels
-      GestureOverlay.tsx        #   Live gesture feedback overlay
-      sanitize.ts               #   Input sanitization
-      selection-info.ts         #   Selection state helpers
-      store.ts                  #   Zustand state store
-      ViewSwitcher.tsx          #   Graph/manifold/split view toggle
-    data/                       # Data loading and validation
-      DataLoader.tsx            #   File open dialog and parser
-      validators.ts             #   Schema validation (Zod)
-    gestures/                   # Gesture recognition pipeline
-      classifier.ts             #   Rule-based gesture classifier
-      features.ts               #   Landmark feature extraction
-      knn-classifier.ts         #   KNN classifier for calibrated gestures
-      mappings.ts               #   Gesture-to-command mapping tables
-      state.ts                  #   Gesture state machine (onset/hold/release)
-      types.ts                  #   Gesture type definitions
-    graph/                      # Knowledge graph visualization
-      colors.ts                 #   Color palette and utilities
-      Edges.tsx                 #   Edge rendering (lines, curves)
-      ForceGraph.tsx            #   Force-directed 3D graph (R3F)
-      force-layout.ts           #   d3-force-3d layout wrapper
-      lod.ts                    #   Level-of-detail manager
-      Nodes.tsx                 #   Node rendering (spheres, labels)
-      parsers/                  #   Graph file parsers
-        graphml-parser.ts       #     GraphML format parser
-        json-parser.ts          #     JSON format parser
-    hooks/
-      useHandTracker.ts         #   React hook for MediaPipe integration
-    manifold/                   # Latent space manifold visualization
-      Clusters.tsx              #   Cluster boundary rendering
-      generators.ts             #   Synthetic data generators
-      HoverCard.tsx             #   Point detail hover card
-      navigation.ts             #   Camera navigation for manifolds
-      PointCloud.tsx            #   GPU instanced point cloud (R3F)
-      spatial-index.ts          #   Spatial index for nearest-neighbor queries
-      types.ts                  #   Manifold type definitions
-    settings/
-      Settings.tsx              #   Settings panel UI
-    tracker/                    # Hand tracking core
-      filters.ts                #   Landmark smoothing filters
-      HandTracker.ts            #   MediaPipe wrapper and frame processing
-      normalize.ts              #   Coordinate normalization
-    App.tsx                     # Root React component
-    main.tsx                    # Renderer entry point
-  shared/                       # Types shared across processes
-    bus-protocol.ts             # WebSocket bus message types
-    ipc-channels.ts             # IPC channel name constants
-    protocol.ts                 # Core protocol types and config
-native/                         # C++ N-API addon (uinput)
-  src/
-    addon.cc                    # Node addon entry point
-    mouse.cc                    # uinput mouse device
-    keyboard.cc                 # uinput keyboard device
-  binding.gyp                   # node-gyp build config
-keymaps/
-  default.json                  # Default gesture-to-key mappings
-workers/
-  force-layout.worker.ts        # Web Worker for force-directed layout
-  layout.worker.ts              # Web Worker for general layout tasks
-assets/
-  samples/                      # Sample data files
-    small-graph.json            #   Small knowledge graph example
-    embeddings-5k.json          #   5,000-point embedding dataset
-demos/
-  index.ts                      # Gesture recognition demo (colored output)
-  bus-demo.ts                   # WebSocket connector bus demo
-```
+Tests use **Vitest 3** with **happy-dom** as the simulated browser environment and **@testing-library/react** for component testing.
 
 ## Tech Stack
 
-| Category            | Technology                                    |
-|---------------------|-----------------------------------------------|
-| Runtime             | Electron 28, Node.js 20+                      |
-| Language            | TypeScript 5.3, C++ (native addon)            |
-| UI Framework        | React 18                                       |
-| 3D Rendering        | Three.js 0.162, React Three Fiber, Drei       |
-| Hand Tracking       | MediaPipe Tasks Vision 0.10                    |
-| Graph Layout        | d3-force-3d                                    |
-| State Management    | Zustand 4.5                                    |
-| Schema Validation   | Zod 3.22                                       |
-| WebSocket           | ws 8.16                                        |
-| Persistence         | Custom JsonStore (atomic file writes)          |
-| Auto-Updater        | electron-updater 6.x                           |
-| Native Addon        | N-API (node-gyp, node-addon-api)              |
-| Build Tool          | electron-vite (Vite)                           |
-| Testing             | Vitest 1.3, Testing Library, happy-dom        |
-| Packaging           | electron-builder (AppImage, deb)              |
-| Linting             | ESLint 8                                       |
+| Category | Technology |
+|----------|------------|
+| Runtime | Electron 28, Node.js 20+ |
+| Language | TypeScript 5.3, C++ (native addon) |
+| UI Framework | React 18 |
+| 3D Rendering | Three.js 0.162, React Three Fiber, Drei |
+| Hand Tracking | MediaPipe Tasks Vision 0.10 |
+| Graph Layout | d3-force-3d |
+| State Management | Zustand 4.5 |
+| Schema Validation | Zod 3.22 |
+| WebSocket | ws 8.16 |
+| Persistence | Custom JsonStore (atomic file writes) |
+| Auto-Updater | electron-updater 6.x |
+| Native Addon | N-API (node-gyp, node-addon-api) |
+| Build Tool | electron-vite 5 (Vite 6) |
+| Testing | Vitest 3, Testing Library, happy-dom |
+| Packaging | electron-builder 25 (AppImage, deb) |
+| Linting | ESLint 9 (flat config) |
 
 ## Performance
 
-| Metric                       | Target       |
-|------------------------------|--------------|
-| End-to-end latency           | < 50 ms      |
-| Rendering frame rate         | 60 FPS       |
-| Hand tracking frequency      | 30 FPS       |
-| Gesture recognition accuracy | >= 95%       |
-| Memory (up to 1M nodes)      | < 1 GB       |
-| Max graph capacity           | 10M nodes, 50M edges (with LOD and culling) |
+| Metric | Target |
+|--------|--------|
+| End-to-end latency | < 50 ms |
+| Rendering frame rate | 60 FPS |
+| Hand tracking frequency | 60 FPS |
+| Gesture recognition accuracy | >= 95% |
+| Gesture classification throughput | > 700K/sec |
+| Memory (up to 1M nodes) | < 1 GB |
+| Max graph capacity | 10M nodes, 50M edges (with LOD and culling) |
 
 ## Changelog
 

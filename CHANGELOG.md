@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-21
+
+### Added
+
+- **Two-hand gestures**: TwoHandCoordinator with symmetric combo matrix (both-pinch → scale, both-twist → rotate, both-palm → dolly, both-point → measure) and asymmetric combos (pinch+drag, pinch+palm unfold)
+- **Stereo webcam tracking**: StereoFuser for dual-camera triangulation with configurable baseline, disparity-based depth refinement, and hot-plug camera detection
+- HUD stereo status indicator
+- Onset grace period (100ms) for aligning two-hand gesture onsets
+
+### Changed
+
+- **Performance**: Object pooling for gesture events, pre-allocated 2D state machine grid (O(1) lookup replacing Map), worker frame skipping, Frustum/Raycaster pooling
+- **GestureEngine**: Pre-computes hand centers and pinch results per hand to avoid redundant calculations
+- Camera tracking frequency increased from 30 FPS to 60 FPS
+- Gesture timing defaults tuned: minHoldDuration 150→80ms, cooldownDuration 200→120ms
+
+### Upgraded
+
+- vitest 1.x → 3.x
+- vite 5.x → 6.x
+- ESLint 8 → 9 (flat config migration)
+- electron-vite 2.x → 5.x
+- electron-builder 24 → 25
+
+### Renamed
+
+- Project renamed from "Tracking" to "Gestalt"
+- Package name: `tracking` → `gestalt`
+- App ID: `com.tracking.app` → `com.gestalt.app`
+
+### Testing
+
+- 1041 passing tests at 90%+ coverage (up from 1040)
+
 ## [0.1.0] - 2026-02-20
 
 Initial release of the hand-tracked 3D knowledge graph and latent space explorer.
