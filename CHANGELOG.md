@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-22
+
+### Added
+
+- **Onboarding overlay**: Step-through first-launch guide (Welcome → Hand Detection → Basic Gestures → Advanced Controls). Persists completion via `onboardingComplete` config flag
+- **Contextual gesture badges**: GestureOverlay now shows action-based labels ("Select", "Navigate", "Grab") instead of raw gesture types, adapting to view mode and hover target
+- **One-handed mode indicator**: Persistent "1H Mode" badge in HUD status bar with tooltip showing remapped gestures
+- **Overlay exit instructions**: Overlay mode chip now shows "Super+G to exit" hint
+- **Onset feedback**: Expanding ring animation (0→30px, 200ms) at hand center on gesture onset + 880Hz audio click (gated by `audio.onsetSound` config)
+- **Gesture guide icons**: SVG hand pose icons for each gesture in the Gesture Guide overlay
+- **Inverse-variance stereo fusion**: Welford's running variance per-landmark; weights stereo vs mono Z by reliability when sufficient samples accumulated, cold-start falls back to disparity-confidence blend
+- **Z-normalization**: Palm centroid subtraction before One-Euro filtering reduces correlated z-noise ~2.5x
+- **Tremor band-reject filter**: 2nd-order Butterworth notch filter at 8–12Hz (physiological tremor band), applied before One-Euro for users with `tremorCompensation > 0`
+- **Partial hand accommodation**: `detectMissingFingers()` identifies occluded digits by confidence threshold; `avgCurlExcluding()` enables fist/palm classification with 3-4 visible fingers
+- **Wayland overlay fallback**: `getAlwaysOnTopLevel()` uses `'floating'` on Wayland (more portable than `'screen-saver'`), with documented limitations (no click-through, limited global shortcuts)
+- **udev rules**: `assets/99-gestalt-uinput.rules` grants input group access to `/dev/uinput`
+- **DEFAULT_CONFIG validation tests**: Verify all config sections present with sensible defaults
+
+### Changed
+
+- **Security allowlist**: Config path updated from `.config/tracking` to `.config/gestalt` (project rename alignment)
+- **extraResources path**: Fixed packaged build sample path from `resources/assets/samples/` to `resources/samples/` matching electron-builder config
+- **Gesture timing**: `minHoldDuration` 40ms → 80ms (within human reaction time window, reduces false triggers)
+
+### Fixed
+
+- **Thumb opposition model**: Measures distance to palm center (midpoint of index MCP + middle MCP) instead of index fingertip. Eliminates context-dependency where thumb curl changed based on other finger positions
+- **Per-finger ROM normalization**: Ring (0.85) and pinky (0.75) report higher normalized curl for same geometric angle, matching anatomical range-of-motion
+- **Palm normal chirality**: Cross product winding order flipped for left hands, producing consistent normals
+- **DIP filter tier**: 5th One-Euro tier between PIP and TIP for noisiest mid-finger landmarks
+- **X/Y outlier rejection**: MedianFilter3 added to x/y channels (was only on z-axis)
+- **Quality ring buffer**: Replaced arithmetic mean with insertion-sort median (robust to outliers)
+- **Quality-to-confidence sigmoid**: Replaces linear mapping; `1 / (1 + exp(-0.1 * (q - 50)))` prevents mid-range overweighting
+- **Frame-rate-independent EMA**: Pinch approach alpha uses tau formulation `alpha = 1 - exp(-dt / tau)` instead of fixed per-frame constant
+- **Savitzky-Golay velocity**: 5-point quadratic filter on position deltas before velocity computation, reducing noise amplification
+- **Camera-distance-scaled pan**: Pan displacement now proportional to `camera.position.length() * 0.03`
+- **Multiplicative zoom**: `position = target + (position - target) / clamp(1 + delta * 0.02, 0.5, 2.0)` feels proportional at all zoom levels
+- **PointCloud depth**: `depthWrite={true}`, `sizeAttenuation={true}`, `alphaTest={0.5}` for proper occlusion and depth perception
+- **Two-hand system wiring**: TwoHandCoordinator + dispatchTwoHandAction now called from App.tsx gesture pipeline (was dead code)
+- **InputIpcHandler + SystemTray**: Now instantiated in main process lifecycle (was dead code)
+- **View mode data guards**: Keys 1/2/3 check data availability before switching; show toast on missing data
+- **Canvas frameloop**: `frameloop="demand"` saves GPU when idle; invalidates on gesture input
+- **Fatigue detection**: FatigueDetector warns at 60s / critical at 90s of sustained hand elevation (Gorilla Arm prevention)
+- **Focus trap**: ModalContainer traps Tab/Shift+Tab, restores focus on close (WCAG 2.4.3)
+- **Touch targets**: All interactive elements ≥44px (WCAG minimum)
+- **ARIA roles**: Toggle buttons use `role="switch"` + `aria-checked`, tab controls use `role="tablist"`/`role="tab"`, live regions on status indicators
+- **Layout collision**: SelectionPanel, ClusterLegend, HandChordOverlay assigned distinct positions
+- **Theme tokens**: Z-index scale, color palette, spacing grid, font scale replace hardcoded hex values
+- **Ozone platform hint**: `--ozone-platform-hint=auto` appended on Linux for Wayland compatibility
+- **One-Euro dCutoff**: 0.4 → 0.3 for smoother derivative estimation at 60fps
+
+### Testing
+
+- 1444 passing tests across 76 files (up from 1205)
+- 9-sprint TDD audit remediation covering VR, UI/UX, Statistics, Biomedical, HCI, and Linux specialist findings
+
 ## [0.3.0] - 2026-02-21
 
 ### Added
