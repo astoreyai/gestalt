@@ -21,7 +21,8 @@ export const Z_INDEX = {
   modal: 150,
   toast: 200,
   gestureOverlay: 300,
-  guide: 1000
+  guide: 1000,
+  onboarding: 1100
 } as const
 
 // ─── Color Palette ──────────────────────────────────────────────────

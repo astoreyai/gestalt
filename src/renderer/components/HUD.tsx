@@ -8,7 +8,7 @@ import type { CalibrationProfile } from '@shared/protocol'
 import { useVisualStore, useGestureStore, useUIStore, useConfigStore } from '../controller/store'
 import { ViewSwitcher } from '../controller/ViewSwitcher'
 import { A11Y_COLORS, getTrackingStatusIndicator } from '../controller/a11y'
-import { COLORS, MIN_TOUCH_TARGET } from '../styles/tokens'
+import { COLORS, FONT_SIZE, SPACING, MIN_TOUCH_TARGET } from '../styles/tokens'
 
 // Electron -webkit-app-region is not in React.CSSProperties — cast via Record
 type DragStyle = React.CSSProperties & Record<string, unknown>
@@ -16,12 +16,12 @@ type DragStyle = React.CSSProperties & Record<string, unknown>
 /** Shared button style (matches App.tsx buttonStyle) */
 const buttonStyle: DragStyle = {
   padding: '6px 12px',
-  background: 'var(--button-bg)',
-  border: '1px solid var(--border)',
+  background: COLORS.buttonBg,
+  border: `1px solid ${COLORS.border}`,
   borderRadius: 6,
-  color: 'var(--button-text)',
+  color: COLORS.buttonText,
   cursor: 'pointer',
-  fontSize: 12,
+  fontSize: FONT_SIZE.md,
   '-webkit-app-region': 'no-drag'
 }
 
@@ -40,10 +40,10 @@ const winBtnStyle: DragStyle = {
   justifyContent: 'center',
   background: 'transparent',
   border: 'none',
-  color: 'var(--button-text)',
+  color: COLORS.buttonText,
   cursor: 'pointer',
-  fontSize: 14,
-  borderRadius: 4,
+  fontSize: FONT_SIZE.xl,
+  borderRadius: SPACING.xs,
   '-webkit-app-region': 'no-drag'
 }
 
@@ -122,9 +122,9 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         padding: '6px 14px',
         background: 'var(--bg-overlay)',
         borderRadius: 8,
-        fontSize: 13,
+        fontSize: FONT_SIZE.lg,
         display: 'flex',
-        gap: 12,
+        gap: SPACING.md,
         alignItems: 'center',
         pointerEvents: 'auto',
         marginLeft: 84,
@@ -266,6 +266,8 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         )}
         <button
           data-testid="one-handed-toggle"
+          role="button"
+          aria-pressed={oneHandedMode}
           onClick={() => updateConfig({
             gestures: { ...config.gestures, oneHandedMode: !oneHandedMode }
           })}

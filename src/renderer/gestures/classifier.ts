@@ -788,9 +788,9 @@ export function classifyGesture(
     && curls.pinky > fistCurlThr
   // Thumb threshold raised from 0.08 to 0.15: MediaPipe underreports thumb curl
   // (reports ~0.12 even when fully curled), so 0.08 missed valid fists
-  const thumbCurledForFist = curls.thumb > 0.15
+  const thumbCurledForFist = curls.thumb > 0.10
   // Pinch exclusion: if thumb-index distance is within pinch threshold, it's a pinch not a fist
-  const inPinchRange = pinch.detected || pinch.distance < pinchThr * 1.2
+  const inPinchRange = pinch.detected || pinch.distance < pinchThr * 1.0
   if (fourFingersCurled && thumbCurledForFist && !inPinchRange) {
     const avgCurl = (curls.thumb + curls.index + curls.middle + curls.ring + curls.pinky) / 5
     return { type: GestureType.Fist, confidence: Math.min(1, avgCurl) * qualityScale }
@@ -840,9 +840,11 @@ export function classifyGesture(
   const relativeMatch = pointIndexExt && (avgOtherCurl - curls.index) > pointRelThr
 
   if (absoluteMatch || relativeMatch) {
-    // Confidence based on how clearly index is distinguished from other fingers
+    // Confidence: palm-relative scaling for hand-size invariance
     const curlDiff = avgOtherCurl - curls.index
-    const confidence = Math.max(0.3, Math.min(1, curlDiff / 0.2)) * qualityScale
+    const palmDistForScale = Math.sqrt(distanceSquared(lm[LANDMARK.WRIST], lm[LANDMARK.MIDDLE_MCP]))
+    const palmScale = Math.max(palmDistForScale, 0.01)
+    const confidence = Math.max(0.3, Math.min(1, curlDiff / (0.15 * palmScale))) * qualityScale
     return { type: GestureType.Point, confidence }
   }
 

@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback } from 'react'
 import { useConfigStore } from '../controller/store'
-import { COLORS } from '../styles/tokens'
+import { COLORS, Z_INDEX } from '../styles/tokens'
 
 const STEPS = [
   {
@@ -47,8 +47,8 @@ export function OnboardingOverlay(): React.ReactElement | null {
       style={{
         position: 'absolute',
         inset: 0,
-        zIndex: 9999,
-        background: 'rgba(0,0,0,0.75)',
+        zIndex: Z_INDEX.onboarding,
+        background: 'rgba(0,0,0,0.92)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'

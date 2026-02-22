@@ -9,7 +9,7 @@ import type { LandmarkFrame, Landmark, Hand } from '@shared/protocol'
 import { LANDMARK } from '@shared/protocol'
 import { fingerCurl } from '../gestures/classifier'
 import type { FingerName } from '../gestures/types'
-import { COLORS } from '../styles/tokens'
+import { COLORS, SPACING } from '../styles/tokens'
 
 export interface HandChordOverlayProps {
   landmarkFrame: LandmarkFrame | null
@@ -265,15 +265,15 @@ export function HandChordOverlay({
 
   return (
     <>
-      {/* Left hand — above ClusterLegend to avoid layout collision */}
+      {/* Left hand — positioned above bottom content using dynamic calc */}
       <canvas
         ref={leftCanvasRef}
         width={PANEL_W}
         height={PANEL_H}
         style={{
           position: 'absolute',
-          bottom: 230,
-          left: 16,
+          bottom: `calc(${SPACING.lg}px + ${PANEL_H}px + ${SPACING.lg}px)`,
+          left: SPACING.lg,
           pointerEvents: 'none',
           width: PANEL_W,
           height: PANEL_H
@@ -286,8 +286,8 @@ export function HandChordOverlay({
         height={PANEL_H}
         style={{
           position: 'absolute',
-          bottom: 16,
-          right: 16,
+          bottom: SPACING.lg,
+          right: SPACING.lg,
           pointerEvents: 'none',
           width: PANEL_W,
           height: PANEL_H

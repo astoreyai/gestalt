@@ -119,6 +119,13 @@ export class GestureStateMachine {
 
       case GestureState.Cooldown:
         if (timestamp - this.releaseTime >= this.cooldownDuration) {
+          // Cooldown expired + gesture still detected => direct re-onset
+          if (detected) {
+            this.state = GestureState.Onset
+            this.onsetFrameCount = 1
+            this.onsetStartTime = timestamp
+            return GesturePhase.Onset
+          }
           this.state = GestureState.Idle
           this.onsetFrameCount = 0
         }

@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react'
 import type { AppConfig, ThemeMode, CalibrationProfile } from '@shared/protocol'
+import { Z_INDEX } from '../styles/tokens'
 
 export interface SettingsProps {
   config: AppConfig
@@ -40,7 +41,7 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration, p
       height: '100%',
       background: 'var(--panel-bg)',
       borderLeft: '1px solid var(--border)',
-      zIndex: 150,
+      zIndex: Z_INDEX.modal,
       display: 'flex',
       flexDirection: 'column'
     }}>
@@ -51,9 +52,10 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration, p
         padding: '12px 16px',
         borderBottom: '1px solid var(--border)'
       }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Settings</h3>
+        <h3 id="modal-title-settings" style={{ margin: 0, fontSize: 16 }}>Settings</h3>
         <button
           onClick={onClose}
+          aria-label="Close settings"
           style={{
             background: 'none',
             border: 'none',
@@ -66,12 +68,13 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration, p
         </button>
       </div>
 
-      <div role="tablist" style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+      <div role="tablist" aria-label="Settings categories" style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             role="tab"
             aria-selected={activeTab === tab.id}
+            aria-controls={`tabpanel-${tab.id}`}
             onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1,
@@ -90,7 +93,7 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration, p
         ))}
       </div>
 
-      <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
+      <div role="tabpanel" id={`tabpanel-${activeTab}`} style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
         {activeTab === 'tracking' && (
           <TrackingSettings
             config={config}
@@ -137,6 +140,7 @@ function Slider({ label, value, min, max, step, onChange }: {
         min={min} max={max} step={step}
         value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
+        aria-label={label}
         style={{ width: '100%' }}
       />
     </div>
@@ -152,6 +156,7 @@ function Toggle({ label, value, onChange }: {
       <button
         role="switch"
         aria-checked={value}
+        aria-label={label}
         onClick={() => onChange(!value)}
         style={{
           width: 44, height: 24, borderRadius: 12, border: 'none',
@@ -220,6 +225,7 @@ function TrackingSettings({ config, onChange, onOpenCalibration, profiles, activ
                 onProfileChange(e.target.value)
               }
             }}
+            aria-label="Calibration profile"
             style={{
               width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
               borderRadius: 6, color: 'var(--button-text)', fontSize: 14, marginBottom: 8
@@ -246,6 +252,7 @@ function TrackingSettings({ config, onChange, onOpenCalibration, profiles, activ
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
               autoFocus
+              aria-label="New profile name"
               style={{
                 width: '100%', padding: 6, background: 'var(--panel-bg)', border: '1px solid var(--border)',
                 borderRadius: 4, color: 'var(--button-text)', fontSize: 13, marginBottom: 8, boxSizing: 'border-box'
@@ -259,6 +266,7 @@ function TrackingSettings({ config, onChange, onOpenCalibration, profiles, activ
                 type="range" min={0.1} max={1.0} step={0.05}
                 value={newSensitivity}
                 onChange={e => setNewSensitivity(parseFloat(e.target.value))}
+                aria-label="New profile sensitivity"
                 style={{ width: '100%' }}
               />
             </div>
@@ -355,8 +363,8 @@ function GestureSettings({ config, onChange }: {
   const clampedResponsiveness = Math.max(0, Math.min(1, responsiveness))
 
   const handleResponsiveness = (v: number): void => {
-    const holdMs = Math.round(200 - v * 190)   // 1.0 → 10ms, 0.0 → 200ms
-    const coolMs = Math.round(250 - v * 220)    // 1.0 → 30ms, 0.0 → 250ms
+    const holdMs = Math.round(200 - v * 190)   // 1.0 -> 10ms, 0.0 -> 200ms
+    const coolMs = Math.round(250 - v * 220)    // 1.0 -> 30ms, 0.0 -> 250ms
     onChange({ gestures: { ...config.gestures, minHoldDuration: holdMs, cooldownDuration: coolMs } })
   }
 
@@ -373,6 +381,7 @@ function GestureSettings({ config, onChange }: {
           min={0} max={1} step={0.05}
           value={clampedResponsiveness}
           onChange={e => handleResponsiveness(parseFloat(e.target.value))}
+          aria-label="Gesture responsiveness"
           style={{ width: '100%' }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
@@ -435,6 +444,31 @@ function InputSettings({ config, onChange }: {
 function BusSettings({ config, onChange }: {
   config: AppConfig; onChange: (c: Partial<AppConfig>) => void
 }): React.ReactElement {
+  const [portError, setPortError] = useState<string | null>(null)
+
+  const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const raw = e.target.value
+    const parsed = parseInt(raw, 10)
+    if (isNaN(parsed)) {
+      setPortError('Port must be a number')
+      return
+    }
+    if (parsed < 1024 || parsed > 65535) {
+      setPortError('Port must be between 1024 and 65535')
+    } else {
+      setPortError(null)
+    }
+    onChange({ bus: { ...config.bus, port: parsed } })
+  }
+
+  const handlePortBlur = (): void => {
+    const clamped = Math.max(1024, Math.min(65535, Math.round(config.bus.port)))
+    if (clamped !== config.bus.port) {
+      onChange({ bus: { ...config.bus, port: clamped } })
+    }
+    setPortError(null)
+  }
+
   return (
     <>
       <Toggle
@@ -448,13 +482,25 @@ function BusSettings({ config, onChange }: {
         </label>
         <input
           type="number"
+          min={1024}
+          max={65535}
+          step={1}
           value={config.bus.port}
-          onChange={e => onChange({ bus: { ...config.bus, port: parseInt(e.target.value) || 9876 } })}
+          onChange={handlePortChange}
+          onBlur={handlePortBlur}
+          aria-label="Bus port number"
+          aria-invalid={portError !== null}
           style={{
-            width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
+            width: '100%', padding: 8, background: 'var(--input-bg)',
+            border: `1px solid ${portError ? 'var(--error, #e05050)' : 'var(--border)'}`,
             borderRadius: 6, color: 'var(--button-text)', fontSize: 14
           }}
         />
+        {portError && (
+          <div role="alert" style={{ fontSize: 11, color: 'var(--error, #e05050)', marginTop: 4 }}>
+            {portError}
+          </div>
+        )}
       </div>
     </>
   )
@@ -496,7 +542,7 @@ function VisualizationSettings({ config, onChange }: {
           Render Rate
         </label>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 4px 0' }}>
-          Monitor: {monitorHz} Hz — rendering synced to native refresh rate
+          Monitor: {monitorHz} Hz -- rendering synced to native refresh rate
         </p>
       </div>
       <div style={{ marginBottom: 16 }}>
@@ -508,6 +554,7 @@ function VisualizationSettings({ config, onChange }: {
           onChange={e => onChange({
             visualization: { ...config.visualization, defaultView: e.target.value as 'graph' | 'manifold' | 'split' }
           })}
+          aria-label="Default view mode"
           style={{
             width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
             borderRadius: 6, color: 'var(--button-text)', fontSize: 14
@@ -534,7 +581,7 @@ function AppearanceSettings({ config, onChange }: {
 }): React.ReactElement {
   return (
     <>
-      <div style={{ marginBottom: 16 }}>
+      <div role="radiogroup" aria-label="Theme selection" style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 8 }}>
           Theme
         </label>
@@ -544,6 +591,8 @@ function AppearanceSettings({ config, onChange }: {
             return (
               <button
                 key={opt.value}
+                role="radio"
+                aria-checked={isActive}
                 onClick={() => onChange({ theme: opt.value })}
                 style={{
                   display: 'flex',

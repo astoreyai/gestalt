@@ -84,6 +84,11 @@ export function App(): React.ReactElement {
   const overlayMode = useUIStore((s) => s.overlayMode)
   const setOverlayMode = useUIStore((s) => s.setOverlayMode)
 
+  // Sync body background with overlay mode — <body> must be transparent for click-through
+  useEffect(() => {
+    document.body.style.background = overlayMode ? 'transparent' : ''
+  }, [overlayMode])
+
   // Wrap setGraphData/setEmbeddingData to also set viewMode (mirrors useAppStore behavior)
   const setGraphData = useCallback(
     (data: GraphData | null) => {
@@ -307,12 +312,47 @@ export function App(): React.ReactElement {
               }
               break
             case 'roll':
-            case 'scale_node':
-            case 'measure':
-            case 'fold':
-            case 'unfold':
-              addToast(`Two-hand: ${action.type}`, 'info')
+              if (controls) {
+                const rollAngle = (action.params.angle as number) * 0.03
+                controls.object.rotateZ(rollAngle)
+                controls.update()
+              }
               break
+            case 'scale_node': {
+              const scaleNodeId = action.params.nodeId as string | null
+              const scaleDelta = action.params.delta as number
+              if (scaleNodeId) {
+                addToast(`Scale node ${scaleNodeId}: ${scaleDelta > 0 ? '+' : ''}${scaleDelta.toFixed(2)}`, 'info', 2000)
+              }
+              break
+            }
+            case 'measure': {
+              const x1 = action.params.x1 as number
+              const y1 = action.params.y1 as number
+              const x2 = action.params.x2 as number
+              const y2 = action.params.y2 as number
+              const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+              addToast(`Distance: ${dist.toFixed(3)}`, 'info', 3000)
+              break
+            }
+            case 'fold': {
+              const foldClusterId = action.params.clusterId as string | null
+              if (foldClusterId !== null) {
+                addToast(`Fold: cluster ${foldClusterId} collapsed`, 'info', 2000)
+              } else {
+                addToast('Fold: no cluster selected', 'warning', 2000)
+              }
+              break
+            }
+            case 'unfold': {
+              const unfoldClusterId = action.params.clusterId as string | null
+              if (unfoldClusterId !== null) {
+                addToast(`Unfold: cluster ${unfoldClusterId} expanded`, 'info', 2000)
+              } else {
+                addToast('Unfold: no cluster selected', 'warning', 2000)
+              }
+              break
+            }
           }
         }
         // Suppress individual hand gestures if coordinator says so
@@ -469,6 +509,38 @@ export function App(): React.ReactElement {
           hoverChanged = true
           break
         }
+        case 'toggle_info': {
+          // No-op: info view is always visible via SelectionPanel
+          break
+        }
+        case 'toggle_legend': {
+          updateConfig({
+            visualization: {
+              ...config.visualization,
+              showClusterLegend: !config.visualization.showClusterLegend
+            }
+          })
+          break
+        }
+        case 'context_menu': {
+          addToast('Context menu (Fist gesture)', 'info', 2000)
+          break
+        }
+        case 'reset_view': {
+          if (controls) {
+            controls.target.set(0, 0, 0)
+            controls.object.position.set(20, 15, 50)
+            controls.object.lookAt(controls.target)
+            controls.update()
+          }
+          perHandSelectionRef.current.left = null
+          perHandSelectionRef.current.right = null
+          selectNode(null)
+          selectSecondaryNode(perHandSelectionRef.current.right)
+          selectCluster(null)
+          addToast('View reset', 'info', 2000)
+          break
+        }
       }
 
       // Clear hover/drag for non-matching actions
@@ -490,7 +562,7 @@ export function App(): React.ReactElement {
     // Batch state updates
     if (hoverChanged) setGestureHoverPos({ left: hoverLeftOut, right: hoverRightOut })
     if (dragChanged) setDragPositions({ left: dragLeftOut, right: dragRightOut })
-  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData, overlayMode])
+  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, config.visualization, selectNode, selectCluster, setActiveGesture, setActiveModal, addToast, updateConfig, graphData, overlayMode, activeModal])
 
   // Update gesture engine config when settings change
   useEffect(() => {
@@ -582,7 +654,10 @@ export function App(): React.ReactElement {
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 })
 
   // Cluster info computed from embedding data
-  const clusterInfos = embeddingData ? calculateClusterCentroids(embeddingData) : []
+  const clusterInfos = useMemo(
+    () => embeddingData ? calculateClusterCentroids(embeddingData) : [],
+    [embeddingData]
+  )
 
   // Bounds for axis labels (manifold view)
   const embeddingBounds = useMemo(() => {

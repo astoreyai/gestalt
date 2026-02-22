@@ -16,9 +16,14 @@ interface NativeKeyboardAPI {
 export class VirtualKeyboard {
   private native: NativeKeyboardAPI | null = null
   private initialized = false
+  private stubMode = false
 
   /** Initialize with a provided native API (for dependency injection / testing) */
   initWithNative(nativeApi: NativeKeyboardAPI): void {
+    // Destroy previous device to prevent FD leak on re-initialization
+    if (this.native && this.initialized) {
+      this.native.destroy()
+    }
     this.native = nativeApi
     this.native.create()
     this.initialized = true
@@ -26,17 +31,43 @@ export class VirtualKeyboard {
 
   /** Initialize the virtual keyboard device */
   async init(): Promise<void> {
+    // Destroy previous device to prevent FD leak on re-initialization
+    if (this.native && this.initialized) {
+      this.native.destroy()
+      this.native = null
+      this.initialized = false
+    }
+
     try {
-       
       const addon = globalThis.require?.('../../native/build/Release/tracking_input.node')
       if (addon?.keyboard) {
         this.native = addon.keyboard as NativeKeyboardAPI
         this.native.create()
+      } else {
+        this.stubMode = true
+        this.notifyStubMode('Native addon loaded but keyboard API not found')
       }
       this.initialized = true
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      console.warn(`[VirtualKeyboard] Native addon not available, running in stub mode: ${errorMsg}`)
+      this.stubMode = true
+      this.initialized = true
+      this.notifyStubMode(errorMsg)
+    }
+  }
+
+  /** Notify the renderer that keyboard is running in stub mode */
+  private notifyStubMode(reason: string): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { BrowserWindow } = require('electron') as typeof import('electron')
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('input:stub-mode', { device: 'keyboard', reason })
+      }
     } catch {
-      console.warn('[VirtualKeyboard] Native addon not available, running in stub mode')
-      this.initialized = true // Stub mode
+      // Not in Electron context (tests) -- skip notification
     }
   }
 
@@ -61,9 +92,14 @@ export class VirtualKeyboard {
     }
   }
 
+  /** Whether running in stub mode (native addon unavailable) */
+  isStubMode(): boolean {
+    return this.stubMode
+  }
+
   /** Get current state */
-  getState(): { initialized: boolean } {
-    return { initialized: this.initialized }
+  getState(): { initialized: boolean; stubMode: boolean } {
+    return { initialized: this.initialized, stubMode: this.stubMode }
   }
 
   /** Destroy the virtual keyboard device */
@@ -71,5 +107,6 @@ export class VirtualKeyboard {
     this.native?.destroy()
     this.native = null
     this.initialized = false
+    this.stubMode = false
   }
 }

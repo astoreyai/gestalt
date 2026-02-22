@@ -13,6 +13,8 @@ export interface EdgesProps {
   edges: GraphEdge[]
   /** Map of node id -> current position from force layout */
   positions: Map<string, NodePosition>
+  /** Monotonic version counter for positions — avoids Map identity comparison */
+  positionVersion?: number
   /** Currently selected node id — edges connected to it will be highlighted */
   selectedId?: string | null
   /** Secondary selected node id — edges connected to it will also be highlighted */
@@ -31,6 +33,7 @@ const MAX_OPACITY = 0.8
 export const Edges = React.memo(function Edges({
   edges,
   positions,
+  positionVersion,
   selectedId,
   secondarySelectedId
 }: EdgesProps): React.ReactElement | null {
@@ -62,8 +65,8 @@ export const Edges = React.memo(function Edges({
     }
   }, [edges.length])
 
-  /** Track last positions/selection for dirty-flag skip */
-  const prevPositionsRef = useRef<Map<string, NodePosition> | null>(null)
+  /** Track last position version/selection for dirty-flag skip */
+  const prevPositionVersionRef = useRef<number>(-1)
   const prevSelectedRef = useRef<string | null | undefined>(null)
   const prevSecondaryRef = useRef<string | null | undefined>(null)
 
@@ -87,9 +90,10 @@ export const Edges = React.memo(function Edges({
     const line = lineRef.current
     if (!line || edges.length === 0) return
 
-    // Dirty-flag: skip GPU upload if positions and selection haven't changed
-    if (positions === prevPositionsRef.current && selectedId === prevSelectedRef.current && secondarySelectedId === prevSecondaryRef.current) return
-    prevPositionsRef.current = positions
+    // Dirty-flag: skip GPU upload if position version and selection haven't changed
+    const currentVersion = positionVersion ?? -1
+    if (currentVersion === prevPositionVersionRef.current && selectedId === prevSelectedRef.current && secondarySelectedId === prevSecondaryRef.current) return
+    prevPositionVersionRef.current = currentVersion
     prevSelectedRef.current = selectedId
     prevSecondaryRef.current = secondarySelectedId
 

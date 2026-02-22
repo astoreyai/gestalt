@@ -3,7 +3,7 @@
  * Routes gesture events to the appropriate input handler (mouse, keyboard, bus).
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, screen } from 'electron'
 import { IPC } from '@shared/ipc-channels'
 import type { GestureEvent, MouseCommand, KeyboardCommand } from '@shared/protocol'
 import { GestureType, GesturePhase } from '@shared/protocol'
@@ -70,7 +70,7 @@ export class InputIpcHandler {
     }
     ipcMain.on(IPC.KEYBOARD_COMMAND, this._keyboardHandler)
 
-    // Gesture events → check for macros, then route to mouse/keyboard
+    // Gesture events: check for macros, then route to mouse/keyboard
     this._gestureHandler = (_event: unknown, gesture: GestureEvent) => {
       if (!this.enabled) return
       const parsed = GestureEventSchema.safeParse(gesture)
@@ -98,11 +98,11 @@ export class InputIpcHandler {
       return
     }
 
-    // Default gesture → mouse mapping is handled by the scene controller
+    // Default gesture to mouse mapping is handled by the scene controller
     // in the renderer. This only handles OS-level input forwarding.
   }
 
-  /** Handle gesture events in overlay mode — maps to OS mouse/keyboard */
+  /** Handle gesture events in overlay mode: maps to OS mouse/keyboard */
   private handleOverlayGesture(gesture: GestureEvent): void {
     const { type, phase, position } = gesture
 
@@ -139,16 +139,52 @@ export class InputIpcHandler {
         }
         break
 
-      // OpenPalm: reserved — no action
+      case GestureType.LShape:
+        if (phase === GesturePhase.Onset) {
+          this.mouse.execute({ target: 'mouse', action: 'click', button: 'middle' })
+        }
+        break
+
+      case GestureType.OpenPalm:
+        // Stop/cancel gesture: clear tracking state
+        this.prevOverlayPos = null
+        break
+
+      case GestureType.TwoHandPinch:
+        if (phase === GesturePhase.Onset || phase === GesturePhase.Hold) {
+          // Zoom via Ctrl+scroll: use hand distance from gesture data
+          const handDistance = gesture.data?.distance ?? 0
+          const zoomDelta = (handDistance - 0.5) * 10
+          this.keyboard.execute({ target: 'keyboard', action: 'press', key: 'ctrl' })
+          this.mouse.execute({ target: 'mouse', action: 'scroll', deltaY: zoomDelta })
+          this.keyboard.execute({ target: 'keyboard', action: 'release', key: 'ctrl' })
+        }
+        break
+
       default:
         break
     }
   }
 
-  /** Set overlay mode — changes gesture routing behavior */
+  /** Set overlay mode: changes gesture routing behavior */
   setOverlayMode(active: boolean): void {
     this.overlayMode = active
-    this.prevOverlayPos = null
+    if (active) {
+      // Sync prevOverlayPos with actual cursor position to avoid jump on first gesture
+      try {
+        const cursor = screen.getCursorScreenPoint()
+        const mouseState = this.mouse.getState()
+        const { width, height } = mouseState.resolution
+        this.prevOverlayPos = {
+          x: width > 0 ? cursor.x / width : 0,
+          y: height > 0 ? cursor.y / height : 0
+        }
+      } catch {
+        this.prevOverlayPos = null
+      }
+    } else {
+      this.prevOverlayPos = null
+    }
   }
 
   /** Update the mouse resolution to span all monitors */

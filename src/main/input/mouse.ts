@@ -17,6 +17,7 @@ interface NativeMouseAPI {
 export class VirtualMouse {
   private native: NativeMouseAPI | null = null
   private initialized = false
+  private stubMode = false
   private lastX = 0
   private lastY = 0
   private dragging = false
@@ -26,6 +27,7 @@ export class VirtualMouse {
 
   /** Initialize with a provided native API (for dependency injection / testing) */
   initWithNative(nativeApi: NativeMouseAPI): void {
+    if (this.initialized) return
     this.native = nativeApi
     this.native.create()
     this.initialized = true
@@ -33,17 +35,38 @@ export class VirtualMouse {
 
   /** Initialize the virtual mouse device */
   async init(): Promise<void> {
+    if (this.initialized) return
+
     try {
-       
       const addon = globalThis.require?.('../../native/build/Release/tracking_input.node')
       if (addon?.mouse) {
         this.native = addon.mouse as NativeMouseAPI
         this.native.create()
+      } else {
+        this.stubMode = true
+        this.notifyStubMode('Native addon loaded but mouse API not found')
       }
       this.initialized = true
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      console.warn(`[VirtualMouse] Native addon not available, running in stub mode: ${errorMsg}`)
+      this.stubMode = true
+      this.initialized = true
+      this.notifyStubMode(errorMsg)
+    }
+  }
+
+  /** Notify the renderer that mouse is running in stub mode */
+  private notifyStubMode(reason: string): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { BrowserWindow } = require('electron') as typeof import('electron')
+      const win = BrowserWindow.getAllWindows()[0]
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('input:stub-mode', { device: 'mouse', reason })
+      }
     } catch {
-      console.warn('[VirtualMouse] Native addon not available, running in stub mode')
-      this.initialized = true // Stub mode
+      // Not in Electron context (tests) -- skip notification
     }
   }
 
@@ -83,7 +106,7 @@ export class VirtualMouse {
     }
   }
 
-  /** Move mouse by normalized position delta [0,1] → screen pixels */
+  /** Move mouse by normalized position delta [0,1] to screen pixels */
   moveToNormalized(nx: number, ny: number): void {
     const targetX = nx * this.screenWidth
     const targetY = ny * this.screenHeight
@@ -129,15 +152,22 @@ export class VirtualMouse {
     this.screenHeight = height
   }
 
+  /** Whether running in stub mode (native addon unavailable) */
+  isStubMode(): boolean {
+    return this.stubMode
+  }
+
   /** Get current state */
   getState(): {
     initialized: boolean
+    stubMode: boolean
     dragging: boolean
     position: { x: number; y: number }
     resolution: { width: number; height: number }
   } {
     return {
       initialized: this.initialized,
+      stubMode: this.stubMode,
       dragging: this.dragging,
       position: { x: this.lastX, y: this.lastY },
       resolution: { width: this.screenWidth, height: this.screenHeight }
@@ -149,5 +179,6 @@ export class VirtualMouse {
     this.native?.destroy()
     this.native = null
     this.initialized = false
+    this.stubMode = false
   }
 }

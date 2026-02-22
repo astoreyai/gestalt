@@ -68,6 +68,13 @@ static int lookupKey(const std::string& name) {
 Napi::Value CreateKeyboard(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
+  // Close existing FD to prevent leak if create() is called multiple times
+  if (kb_fd >= 0) {
+    ioctl(kb_fd, UI_DEV_DESTROY);
+    close(kb_fd);
+    kb_fd = -1;
+  }
+
   kb_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
   if (kb_fd < 0) {
     Napi::Error::New(env, std::string("Failed to open /dev/uinput: ") + strerror(errno))

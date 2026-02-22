@@ -3,7 +3,7 @@
  * motion metrics, and motion trails as a 2D canvas overlay.
  */
 
-import React, { useRef, useEffect, useCallback } from 'react'
+import React, { useRef, useEffect, useCallback, useMemo } from 'react'
 import type { LandmarkFrame, GestureEvent } from '@shared/protocol'
 import { LANDMARK, GestureType, GesturePhase } from '@shared/protocol'
 import { getGestureActionLabel, getContextualGestureLabel } from './gesture-labels'
@@ -80,6 +80,12 @@ export function GestureOverlay({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   /** Track last drawn frame ID to skip redundant redraws */
   const lastDrawnFrameRef = useRef<number>(-1)
+
+  /** Respect prefers-reduced-motion for trail/fade animations */
+  const prefersReducedMotion = useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+    []
+  )
 
   // Motion trails — persistent across renders
   const trailLeftRef = useRef<PositionTrail>(new PositionTrail(30))
@@ -205,7 +211,8 @@ export function GestureOverlay({
     if (hasRight) prevHandsRef.current.add('right')
 
     // Draw motion trails (zero-allocation using forEach)
-    if (showMotionTrail) {
+    // Skip trail animations when user prefers reduced motion
+    if (showMotionTrail && !prefersReducedMotion) {
       const trails = [trailLeftRef.current, trailRightRef.current]
       const colors = [TRAIL_COLOR_LEFT, TRAIL_COLOR_RIGHT]
 
@@ -257,7 +264,7 @@ export function GestureOverlay({
     }
 
     ctx.globalAlpha = 1.0
-  }, [landmarkFrame, activeGesture, width, height, motionMetrics, showMotionMetrics, showMotionTrail])
+  }, [landmarkFrame, activeGesture, width, height, motionMetrics, showMotionMetrics, showMotionTrail, prefersReducedMotion])
 
   // Update label state and schedule fade animation
   useEffect(() => {
@@ -301,6 +308,7 @@ export function GestureOverlay({
       />
       {label && (
         <div
+          aria-live="polite"
           style={{
             position: 'absolute',
             bottom: 64,
@@ -314,7 +322,7 @@ export function GestureOverlay({
             color: '#fff',
             textTransform: 'uppercase',
             letterSpacing: 1,
-            opacity: label.opacity,
+            opacity: prefersReducedMotion ? 1 : label.opacity,
             transition: 'none'
           }}
         >

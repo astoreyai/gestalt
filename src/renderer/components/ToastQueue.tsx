@@ -5,7 +5,7 @@
 
 import React from 'react'
 import type { Toast } from '../controller/store'
-import { COLORS } from '../styles/tokens'
+import { COLORS, Z_INDEX } from '../styles/tokens'
 
 /** Severity-based background colors for toast notifications */
 const TOAST_COLORS: Record<Toast['severity'], string> = {
@@ -32,7 +32,7 @@ export function ToastQueue({ toasts, onDismiss }: ToastQueueProps): React.ReactE
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
-        zIndex: 200,
+        zIndex: Z_INDEX.toast,
         maxWidth: 400
       }}
     >

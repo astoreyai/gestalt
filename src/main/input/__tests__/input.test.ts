@@ -449,6 +449,109 @@ describe('MacroEngine', () => {
   })
 })
 
+
+// ──────────────────────────────────────────────────────────────────────
+// Double-init guard tests
+// ──────────────────────────────────────────────────────────────────────
+
+describe('VirtualMouse double-init guard', () => {
+  it('should not re-initialize via initWithNative when already initialized', () => {
+    const mouse = new VirtualMouse(1920, 1080)
+    const mockNative1 = {
+      create: vi.fn(() => true),
+      move: vi.fn(),
+      click: vi.fn(),
+      scroll: vi.fn(),
+      destroy: vi.fn()
+    }
+    const mockNative2 = {
+      create: vi.fn(() => true),
+      move: vi.fn(),
+      click: vi.fn(),
+      scroll: vi.fn(),
+      destroy: vi.fn()
+    }
+    mouse.initWithNative(mockNative1)
+    mouse.initWithNative(mockNative2)
+    expect(mockNative1.create).toHaveBeenCalledOnce()
+    expect(mockNative2.create).not.toHaveBeenCalled()
+  })
+
+  it('should not re-initialize via init() when already initialized', async () => {
+    const mouse = new VirtualMouse(1920, 1080)
+    await mouse.init()
+    expect(mouse.getState().initialized).toBe(true)
+    // Second init should be a no-op
+    await mouse.init()
+    expect(mouse.getState().initialized).toBe(true)
+  })
+
+  it('should report stubMode in getState', async () => {
+    const mouse = new VirtualMouse(1920, 1080)
+    expect(mouse.getState().stubMode).toBe(false)
+    await mouse.init()
+    // In test environment, native addon is unavailable so stubMode should be true
+    expect(mouse.getState().stubMode).toBe(true)
+  })
+
+  it('should reset stubMode on destroy', async () => {
+    const mouse = new VirtualMouse(1920, 1080)
+    await mouse.init()
+    expect(mouse.getState().stubMode).toBe(true)
+    mouse.destroy()
+    expect(mouse.getState().stubMode).toBe(false)
+  })
+})
+
+describe('VirtualKeyboard double-init guard', () => {
+  it('should destroy previous device and re-initialize via initWithNative to prevent FD leak', () => {
+    const keyboard = new VirtualKeyboard()
+    const mockNative1 = {
+      create: vi.fn(() => true),
+      pressKey: vi.fn(),
+      keyCombo: vi.fn(),
+      destroy: vi.fn()
+    }
+    const mockNative2 = {
+      create: vi.fn(() => true),
+      pressKey: vi.fn(),
+      keyCombo: vi.fn(),
+      destroy: vi.fn()
+    }
+    keyboard.initWithNative(mockNative1)
+    keyboard.initWithNative(mockNative2)
+    // First native should be destroyed to prevent FD leak
+    expect(mockNative1.destroy).toHaveBeenCalledOnce()
+    // Second native should be created as the new device
+    expect(mockNative2.create).toHaveBeenCalledOnce()
+  })
+
+  it('should not re-initialize via init() when already initialized', async () => {
+    const keyboard = new VirtualKeyboard()
+    await keyboard.init()
+    expect(keyboard.getState().initialized).toBe(true)
+    // Second init should be a no-op
+    await keyboard.init()
+    expect(keyboard.getState().initialized).toBe(true)
+  })
+
+  it('should report stubMode in getState', async () => {
+    const keyboard = new VirtualKeyboard()
+    expect(keyboard.getState().stubMode).toBe(false)
+    await keyboard.init()
+    // In test environment, native addon is unavailable so stubMode should be true
+    expect(keyboard.getState().stubMode).toBe(true)
+  })
+
+  it('should reset stubMode on destroy', async () => {
+    const keyboard = new VirtualKeyboard()
+    await keyboard.init()
+    expect(keyboard.getState().stubMode).toBe(true)
+    keyboard.destroy()
+    expect(keyboard.getState().stubMode).toBe(false)
+  })
+})
+
 // ──────────────────────────────────────────────────────────────────────
 // InputIpcHandler destroy cleanup
 // ──────────────────────────────────────────────────────────────────────

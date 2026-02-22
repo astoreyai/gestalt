@@ -33,6 +33,13 @@ static int syn(int fd) {
 Napi::Value CreateMouse(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
+  // Close existing FD to prevent leak if create() is called multiple times
+  if (uinput_fd >= 0) {
+    ioctl(uinput_fd, UI_DEV_DESTROY);
+    close(uinput_fd);
+    uinput_fd = -1;
+  }
+
   uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
   if (uinput_fd < 0) {
     Napi::Error::New(env, std::string("Failed to open /dev/uinput: ") + strerror(errno))

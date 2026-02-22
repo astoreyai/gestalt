@@ -6,7 +6,6 @@
 export const IPC = {
   // Hand tracking → main process
   LANDMARK_FRAME: 'tracking:landmark-frame',
-  TRACKING_STATUS: 'tracking:status',
 
   // Gesture events → main process
   GESTURE_EVENT: 'gesture:event',
@@ -14,12 +13,10 @@ export const IPC = {
   // Input commands (renderer → main)
   MOUSE_COMMAND: 'input:mouse',
   KEYBOARD_COMMAND: 'input:keyboard',
-  PROGRAM_COMMAND: 'input:program',
+  INPUT_STUB_MODE: 'input:stub-mode',
 
   // Connector bus
-  BUS_STATUS: 'bus:status',
   BUS_CONNECTED_PROGRAMS: 'bus:programs',
-  BUS_SEND: 'bus:send',
 
   // Config
   CONFIG_GET: 'config:get',
@@ -58,10 +55,6 @@ export const IPC = {
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_MAXIMIZE: 'window:maximize',
   WINDOW_CLOSE: 'window:close',
-
-  // App lifecycle
-  APP_READY: 'app:ready',
-  APP_QUIT: 'app:quit',
 
   // Data pipeline
   PIPELINE_SCAN_DIRECTORY: 'pipeline:scan-directory',

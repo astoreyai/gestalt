@@ -21,7 +21,6 @@ import {
 import { LandmarkSmoother, OneEuroFilter } from '@renderer/tracker/filters'
 import { classifyGesture, distance, fingerCurl, analyzeHandPose } from '@renderer/gestures/classifier'
 import { GestureEngine } from '@renderer/gestures/state'
-import { mapGestureToCommand } from '@renderer/gestures/mappings'
 import { dispatchGesture, type DispatchContext } from '@renderer/controller/dispatcher'
 import { VirtualMouse } from '@main/input/mouse'
 import { ProgramRegistry } from '@main/bus/registry'
@@ -274,27 +273,9 @@ describe('Benchmarks', () => {
     })
   })
 
-  describe('Command Mapping', () => {
-    it('should map gestures to commands at high throughput', () => {
-      console.log('\n--- Command Mapping ---')
-      const event: GestureEvent = {
-        type: GestureType.Pinch,
-        phase: GesturePhase.Onset,
-        hand: 'right',
-        confidence: 0.9,
-        position: { x: 0.5, y: 0.5, z: 0.1 },
-        timestamp: 1000,
-        data: { distance: 0.02 }
-      }
-
-      const result = runBenchmark('mapGestureToCommand()', () => {
-        mapGestureToCommand(event)
-      }, 50000)
-
-      expect(result.avgMs).toBeLessThan(0.01)
-    })
-
+  describe('Gesture Dispatch', () => {
     it('should dispatch scene actions at high throughput', () => {
+      console.log('\n--- Gesture Dispatch ---')
       const event: GestureEvent = {
         type: GestureType.Pinch,
         phase: GesturePhase.Onset,
@@ -476,20 +457,12 @@ describe('Benchmarks', () => {
       console.log('\n--- End-to-End Pipeline ---')
       const smoother = new LandmarkSmoother({ minCutoff: 1.0, beta: 0.5 })
       const engine = new GestureEngine({ minOnsetFrames: 1 })
-      const mouse = new VirtualMouse()
-      mouse.initWithNative({
-        create: () => true,
-        move: () => {},
-        click: () => {},
-        scroll: () => {},
-        destroy: () => {}
-      })
 
       const landmarks = makePinchLandmarks()
       let t = 0
       let frameId = 0
 
-      const result = runBenchmark('E2E: landmarks → smooth → classify → map → execute', () => {
+      const result = runBenchmark('E2E: landmarks → smooth → classify → dispatch → execute', () => {
         // Step 1: Smooth landmarks
         const smoothed = smoother.smooth(landmarks, t)
 
@@ -500,12 +473,8 @@ describe('Benchmarks', () => {
         // Step 3: Process through gesture engine
         const events = engine.processFrame(frame)
 
-        // Step 4: Map to commands and dispatch
+        // Step 4: Dispatch scene actions
         for (const event of events) {
-          const command = mapGestureToCommand(event)
-          if (command && command.target === 'mouse') {
-            mouse.execute(command as MouseCommand)
-          }
           dispatchGesture(event, {
             viewMode: 'graph',
             selectedNodeId: null,
@@ -550,7 +519,6 @@ describe('Benchmarks', () => {
         const events = engine.processFrame(frame)
 
         for (const event of events) {
-          mapGestureToCommand(event)
           dispatchGesture(event, {
             viewMode: 'graph',
             selectedNodeId: null,

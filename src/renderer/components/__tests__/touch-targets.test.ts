@@ -176,7 +176,7 @@ describe('Sprint 0c: Touch targets and layout', () => {
       expect(canvases.length).toBe(2)
       const leftCanvas = canvases[0] as HTMLElement
       const style = leftCanvas.getAttribute('style') ?? ''
-      expect(style).toContain('bottom: 230px')
+      expect(style).toContain('bottom: calc(16px + 200px + 16px)')
       expect(style).toContain('left: 16px')
     })
 
