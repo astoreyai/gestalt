@@ -29,8 +29,10 @@ export interface ForceGraphHandle {
 export interface ForceGraphProps {
   /** The graph data to visualize */
   data: GraphData
-  /** Currently selected node id (from store) */
+  /** Currently selected node id (from store — left hand / primary) */
   selectedNodeId?: string | null
+  /** Secondary selected node id (right hand) */
+  secondarySelectedNodeId?: string | null
   /** Normalized hand positions for gesture-based hover (0..1 screen coords), one per hand */
   gesturePositions?: Array<{ x: number; y: number }>
   /** Drag nodes: project hand positions to 3D and override node positions */
@@ -47,7 +49,7 @@ export interface ForceGraphProps {
  * renders nodes/edges via instanced rendering.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
-  function ForceGraph({ data, selectedNodeId, gesturePositions, dragPositions, onNodeClick, onNodeHover }, ref) {
+  function ForceGraph({ data, selectedNodeId, secondarySelectedNodeId, gesturePositions, dragPositions, onNodeClick, onNodeHover }, ref) {
     const { camera } = useThree()
     const [positions, setPositions] = useState<Map<string, NodePosition>>(
       () => new Map()
@@ -267,11 +269,13 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
           edges={data.edges}
           positions={positions}
           selectedId={selectedId}
+          secondarySelectedId={secondarySelectedNodeId}
         />
         <Nodes
           nodes={data.nodes}
           positions={positions}
           selectedId={selectedId}
+          secondarySelectedId={secondarySelectedNodeId}
           hoveredId={hoveredId}
           onNodeClick={handleNodeClick}
           onNodeHover={handleNodeHover}

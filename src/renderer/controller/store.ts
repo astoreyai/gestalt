@@ -33,9 +33,12 @@ export interface VisualState {
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
   selectedNodeId: string | null
+  /** Secondary selection for two-hand interaction (left hand = primary, right hand = secondary) */
+  secondarySelectedNodeId: string | null
   hoveredNodeId: string | null
   selectedClusterId: number | null
   selectNode: (id: string | null) => void
+  selectSecondaryNode: (id: string | null) => void
   hoverNode: (id: string | null) => void
   selectCluster: (id: number | null) => void
 }
@@ -78,9 +81,11 @@ export const useVisualStore = create<VisualState>((set) => ({
   viewMode: 'graph',
   setViewMode: (mode) => set({ viewMode: mode }),
   selectedNodeId: null,
+  secondarySelectedNodeId: null,
   hoveredNodeId: null,
   selectedClusterId: null,
   selectNode: (id) => set({ selectedNodeId: id }),
+  selectSecondaryNode: (id) => set({ secondarySelectedNodeId: id }),
   hoverNode: (id) => set({ hoveredNodeId: id }),
   selectCluster: (id) => set({ selectedClusterId: id }),
 }))
@@ -190,9 +195,11 @@ export interface AppState {
 
   // Selection state
   selectedNodeId: string | null
+  secondarySelectedNodeId: string | null
   hoveredNodeId: string | null
   selectedClusterId: number | null
   selectNode: (id: string | null) => void
+  selectSecondaryNode: (id: string | null) => void
   hoverNode: (id: string | null) => void
   selectCluster: (id: number | null) => void
 
@@ -295,7 +302,7 @@ useAppStore.getState = (): AppState => {
 /** Set combined state (for use in tests and non-hook contexts) */
 useAppStore.setState = (partial: Partial<AppState>): void => {
   const {
-    viewMode, selectedNodeId, hoveredNodeId, selectedClusterId,
+    viewMode, selectedNodeId, secondarySelectedNodeId, hoveredNodeId, selectedClusterId,
     graphData, embeddingData,
     activeGesture, lastGestureType, trackingEnabled,
     config, calibrated,
@@ -307,6 +314,7 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
   const visualPartial: Partial<VisualState> = {}
   if (viewMode !== undefined) visualPartial.viewMode = viewMode
   if (selectedNodeId !== undefined) visualPartial.selectedNodeId = selectedNodeId
+  if (secondarySelectedNodeId !== undefined) visualPartial.secondarySelectedNodeId = secondarySelectedNodeId
   if (hoveredNodeId !== undefined) visualPartial.hoveredNodeId = hoveredNodeId
   if (selectedClusterId !== undefined) visualPartial.selectedClusterId = selectedClusterId
   if (Object.keys(visualPartial).length > 0) useVisualStore.setState(visualPartial)
