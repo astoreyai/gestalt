@@ -32,7 +32,7 @@ export interface HUDProps {
   cameraCount?: number
 }
 
-export function HUD({ hasGraph, hasManifold, nodeCount, pointCount, profiles, activeProfileId, onProfileChange, cameraCount = 0 }: HUDProps): React.ReactElement {
+export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, pointCount, profiles, activeProfileId, onProfileChange, cameraCount = 0 }: HUDProps): React.ReactElement {
   // P1-21: Use individual slice selectors instead of useAppStore()
   const viewMode = useVisualStore((s) => s.viewMode)
   const setViewMode = useVisualStore((s) => s.setViewMode)
@@ -138,4 +138,4 @@ export function HUD({ hasGraph, hasManifold, nodeCount, pointCount, profiles, ac
       </div>
     </div>
   )
-}
+})

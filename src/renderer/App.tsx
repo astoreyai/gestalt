@@ -604,7 +604,7 @@ export function App(): React.ReactElement {
           {!hasData && activeModal === null && <PlaceholderScene onLoadSample={loadSample} />}
         </Suspense>
         <OrbitControls ref={orbitRef} enableDamping dampingFactor={0.1} />
-        <Stats />
+        {import.meta.env.DEV && <Stats />}
       </Canvas>
 
       {/* HUD -- Top Bar */}
