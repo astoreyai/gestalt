@@ -1108,6 +1108,31 @@ export function App(): React.ReactElement {
                 onError={handleError}
               />
             </div>
+            <div style={{
+              borderTop: '1px solid var(--border)',
+              margin: '12px 0',
+              paddingTop: 8
+            }}>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px 16px' }}>
+                Quick load bundled samples:
+              </p>
+              <div style={{ display: 'flex', gap: 8, padding: '0 16px' }}>
+                <button
+                  style={buttonStyle}
+                  onClick={() => { loadSample('small-graph.json'); handleCloseModal() }}
+                  aria-label="Load sample graph"
+                >
+                  Sample Graph
+                </button>
+                <button
+                  style={buttonStyle}
+                  onClick={() => { loadSample('embeddings-5k.json'); handleCloseModal() }}
+                  aria-label="Load sample embeddings"
+                >
+                  Sample Embeddings
+                </button>
+              </div>
+            </div>
             <button
               onClick={handleCloseModal}
               style={{ ...buttonStyle, marginTop: 8, width: '100%' }}
