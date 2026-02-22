@@ -31,8 +31,12 @@ export interface SceneAction {
 /** Dispatch result can be a single action or an array of actions (for two-hand combos) */
 export type DispatchResult = SceneAction | SceneAction[]
 
-/** Minimum confidence to dispatch an action (below this → noop) */
-const MIN_DISPATCH_CONFIDENCE = 0.3
+/** Minimum confidence to dispatch an action (below this → noop).
+ *  Set low (0.15) to avoid filtering gestures when tracking quality is
+ *  reduced — the quality scale in the classifier can push confidence down
+ *  even for valid gestures. The onset beep fires regardless of confidence,
+ *  so too-high a gate here causes "beep but no action" confusion. */
+const MIN_DISPATCH_CONFIDENCE = 0.15
 
 /** Pre-allocated noop action to avoid per-call object creation (frozen to prevent mutation) */
 const NOOP_ACTION: SceneAction = Object.freeze({ type: 'noop', params: {} }) as SceneAction
