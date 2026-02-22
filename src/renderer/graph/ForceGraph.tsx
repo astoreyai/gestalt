@@ -144,20 +144,25 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       [onNodeHover]
     )
 
+    // Pre-allocated objects for gesture raycasting (avoid per-frame allocation)
+    const hoverRaycasterRef = useRef(new Raycaster())
+    const hoverVecRef = useRef(new Vector3())
+    const hoverNdcRef = useRef(new Vector2())
+
     // Gesture-based hover: cast rays from camera through each hand's finger position
     useEffect(() => {
       if (!gesturePositions || gesturePositions.length === 0) return
       const pos = positionsRef.current
       if (pos.size === 0) return
 
-      const raycaster = new Raycaster()
-      const v = new Vector3()
+      const raycaster = hoverRaycasterRef.current
+      const v = hoverVecRef.current
+      const ndc = hoverNdcRef.current
       let closestId: string | null = null
       let closestDist = Infinity
 
-      // Check all hand positions, find the single closest node across all hands
       for (const gp of gesturePositions) {
-        const ndc = new Vector2(gp.x * 2 - 1, -(gp.y * 2 - 1))
+        ndc.set(gp.x * 2 - 1, -(gp.y * 2 - 1))
         raycaster.setFromCamera(ndc, camera)
         const ray = raycaster.ray
 
@@ -182,51 +187,53 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     // Once grabbed, node follows hand movement as a delta (no snapping).
     const dragOffsetsRef = useRef<Map<string, Vector3>>(new Map())
     const dragActiveRef = useRef<Set<string>>(new Set())
+    const dragRaycasterRef = useRef(new Raycaster())
+    const dragNodeVecRef = useRef(new Vector3())
+    const dragHandVecRef = useRef(new Vector3())
+    const dragNdcRef = useRef(new Vector2())
+    const dragFallbackOffset = useRef(new Vector3())
 
     useEffect(() => {
       if (!dragPositions || dragPositions.length === 0) {
-        // Clear drag state when no drags active
         dragOffsetsRef.current.clear()
         dragActiveRef.current.clear()
         return
       }
 
-      const raycaster = new Raycaster()
+      const raycaster = dragRaycasterRef.current
+      const nodeVec = dragNodeVecRef.current
+      const handVec = dragHandVecRef.current
+      const ndc = dragNdcRef.current
       let updated: Map<string, NodePosition> | null = null
-      const GRAB_THRESHOLD = 8 // world units — ray must be within this to grab
+      const GRAB_THRESHOLD = 8
 
       for (const dp of dragPositions) {
         const pos = updated ?? positionsRef.current
         const nodePos = pos.get(dp.nodeId)
         if (!nodePos) continue
 
-        const ndc = new Vector2(dp.x * 2 - 1, -(dp.y * 2 - 1))
+        ndc.set(dp.x * 2 - 1, -(dp.y * 2 - 1))
         raycaster.setFromCamera(ndc, camera)
 
-        const nodeVec = new Vector3(nodePos.x, nodePos.y, nodePos.z)
+        nodeVec.set(nodePos.x, nodePos.y, nodePos.z)
         const distToCamera = nodeVec.distanceTo(camera.position)
-        const handWorldPos = raycaster.ray.at(distToCamera, new Vector3())
+        const handWorldPos = raycaster.ray.at(distToCamera, handVec)
 
-        // Check if this drag is already active (hand already grabbed the node)
         if (!dragActiveRef.current.has(dp.nodeId)) {
-          // Not yet grabbed — check if hand ray is close enough to the node
           const rayDist = raycaster.ray.distanceToPoint(nodeVec)
-          if (rayDist > GRAB_THRESHOLD) continue // Hand hasn't reached the node yet
+          if (rayDist > GRAB_THRESHOLD) continue
 
-          // Grab! Record the offset between hand position and node position
           dragActiveRef.current.add(dp.nodeId)
           dragOffsetsRef.current.set(dp.nodeId, nodeVec.clone().sub(handWorldPos))
         }
 
-        // Apply hand position + preserved offset so node doesn't snap
-        const offset = dragOffsetsRef.current.get(dp.nodeId) ?? new Vector3()
+        const offset = dragOffsetsRef.current.get(dp.nodeId) ?? dragFallbackOffset.current.set(0, 0, 0)
         const newPos = handWorldPos.add(offset)
 
         if (!updated) updated = new Map(positionsRef.current)
         updated.set(dp.nodeId, { x: newPos.x, y: newPos.y, z: newPos.z })
       }
 
-      // Clean up drags that are no longer in the list
       const activeNodeIds = new Set(dragPositions.map(dp => dp.nodeId))
       for (const id of dragActiveRef.current) {
         if (!activeNodeIds.has(id)) {

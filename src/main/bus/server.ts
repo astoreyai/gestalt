@@ -157,27 +157,31 @@ export class BusServer {
 
   /**
    * Check if a client has exceeded the message rate limit.
-   * Returns true if the client should be disconnected.
+   * Uses a ring buffer per client for O(1) eviction instead of array.shift().
    */
   private isRateLimited(clientId: string): boolean {
     const now = Date.now()
-    let timestamps = this.rateLimits.get(clientId)
-    if (!timestamps) {
-      timestamps = []
-      this.rateLimits.set(clientId, timestamps)
+    let state = this.rateLimits.get(clientId) as { buf: number[]; head: number; count: number } | undefined
+    if (!state) {
+      state = { buf: new Array(RATE_LIMIT + 1).fill(0), head: 0, count: 0 }
+      this.rateLimits.set(clientId, state as unknown as number[])
     }
 
-    // Remove timestamps outside the rate window
+    // Evict expired entries
     const cutoff = now - RATE_WINDOW_MS
-    while (timestamps.length > 0 && timestamps[0] <= cutoff) {
-      timestamps.shift()
+    while (state.count > 0 && state.buf[state.head] <= cutoff) {
+      state.head = (state.head + 1) % state.buf.length
+      state.count--
     }
 
-    // Add current timestamp
-    timestamps.push(now)
+    if (state.count > RATE_LIMIT) return true
 
-    // Check if over limit
-    return timestamps.length > RATE_LIMIT
+    // Push to tail
+    const tail = (state.head + state.count) % state.buf.length
+    state.buf[tail] = now
+    state.count++
+
+    return state.count > RATE_LIMIT
   }
 
   /** Handle an incoming message from a client */

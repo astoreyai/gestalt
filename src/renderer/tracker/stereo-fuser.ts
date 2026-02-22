@@ -97,12 +97,25 @@ export function fuseFrames(
  * Fuse two matched Hand objects from the stereo pair.
  * Averages x/y and computes stereo depth from disparity.
  */
+// Pre-allocated pools for stereo fusion (avoids per-frame allocation)
+const _fusedLandmarkPool: Landmark[][] = [[], []]
+const _fusedWorldLandmarkPool: Landmark[][] = [[], []]
+let _fusedPoolHandIdx = 0
+
+function ensurePool(pool: Landmark[], count: number): void {
+  while (pool.length < count) pool.push({ x: 0, y: 0, z: 0 })
+}
+
 function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
   const landmarkCount = Math.min(primary.landmarks.length, secondary.landmarks.length)
-  const fusedLandmarks: Landmark[] = new Array(landmarkCount)
-  const fusedWorldLandmarks: Landmark[] = new Array(
-    Math.min(primary.worldLandmarks.length, secondary.worldLandmarks.length)
-  )
+  const worldCount = Math.min(primary.worldLandmarks.length, secondary.worldLandmarks.length)
+
+  // Rotate between two pooled arrays (one per hand)
+  const poolIdx = _fusedPoolHandIdx++ & 1
+  const fusedLandmarks = _fusedLandmarkPool[poolIdx]
+  const fusedWorldLandmarks = _fusedWorldLandmarkPool[poolIdx]
+  ensurePool(fusedLandmarks, landmarkCount)
+  ensurePool(fusedWorldLandmarks, worldCount)
 
   for (let i = 0; i < landmarkCount; i++) {
     const pLm = primary.landmarks[i]
@@ -111,34 +124,31 @@ function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
     const avgX = (pLm.x + sLm.x) / 2
     const avgY = (pLm.y + sLm.y) / 2
 
-    // Compute stereo depth from horizontal disparity
     const disparity = Math.abs(pLm.x - sLm.x)
     const effectiveDisparity = Math.max(disparity, cfg.minDisparity)
     const stereoZ = (cfg.baselineDistance * cfg.focalLength) / effectiveDisparity
 
-    // Blend: use stereo z when disparity is meaningful, fall back to average z when not
     const disparityConfidence = Math.min(disparity / 0.05, 1.0)
     const avgOriginalZ = (pLm.z + sLm.z) / 2
     const fusedZ = disparityConfidence * stereoZ + (1 - disparityConfidence) * avgOriginalZ
 
-    fusedLandmarks[i] = { x: avgX, y: avgY, z: fusedZ }
+    const out = fusedLandmarks[i]
+    out.x = avgX; out.y = avgY; out.z = fusedZ
   }
 
-  // World landmarks: just average both
-  for (let i = 0; i < fusedWorldLandmarks.length; i++) {
+  for (let i = 0; i < worldCount; i++) {
     const pWl = primary.worldLandmarks[i]
     const sWl = secondary.worldLandmarks[i]
-    fusedWorldLandmarks[i] = {
-      x: (pWl.x + sWl.x) / 2,
-      y: (pWl.y + sWl.y) / 2,
-      z: (pWl.z + sWl.z) / 2
-    }
+    const out = fusedWorldLandmarks[i]
+    out.x = (pWl.x + sWl.x) / 2
+    out.y = (pWl.y + sWl.y) / 2
+    out.z = (pWl.z + sWl.z) / 2
   }
 
   return {
     handedness: primary.handedness,
-    landmarks: fusedLandmarks,
-    worldLandmarks: fusedWorldLandmarks,
+    landmarks: fusedLandmarks.slice(0, landmarkCount),
+    worldLandmarks: fusedWorldLandmarks.slice(0, worldCount),
     score: Math.max(primary.score, secondary.score)
   }
 }

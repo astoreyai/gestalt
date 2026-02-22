@@ -585,21 +585,12 @@ export class HandTracker {
         dst.z = wl.z
       }
 
-      // Snapshot the pooled data so consumers don't get aliased references
-      const snapshotLandmarks: Landmark[] = new Array(21)
-      const snapshotWorldLandmarks: Landmark[] = new Array(21)
-      for (let j = 0; j < 21; j++) {
-        const pl = pooledLandmarks[j]
-        snapshotLandmarks[j] = { x: pl.x, y: pl.y, z: pl.z }
-      }
-      for (let j = 0; j < pooledWorldLandmarks.length; j++) {
-        const pw = pooledWorldLandmarks[j]
-        snapshotWorldLandmarks[j] = { x: pw.x, y: pw.y, z: pw.z }
-      }
+      // Return pooled references directly — consumers (GestureEngine) process
+      // the frame synchronously within the same tick, so aliasing is safe.
       hands[i] = {
         handedness: pooledHand.handedness,
-        landmarks: snapshotLandmarks,
-        worldLandmarks: snapshotWorldLandmarks,
+        landmarks: pooledLandmarks,
+        worldLandmarks: pooledWorldLandmarks,
         score: pooledHand.score
       }
     }
