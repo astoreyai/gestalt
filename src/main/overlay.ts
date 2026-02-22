@@ -7,6 +7,7 @@
 
 import { BrowserWindow, screen, globalShortcut } from 'electron'
 import { IPC } from '@shared/ipc-channels'
+import { detectDisplayServer, type DisplayServer } from './platform'
 
 interface SavedBounds {
   x: number
@@ -23,12 +24,33 @@ export interface OverlayManager {
   destroy(): void
 }
 
+/**
+ * Determine the appropriate always-on-top level for the current display server.
+ *
+ * - X11: 'screen-saver' level places the window above all other windows.
+ * - Wayland: 'screen-saver' is not supported by most compositors; use 'floating'.
+ *   Wayland also has limited overlay support — click-through (setIgnoreMouseEvents)
+ *   may not work reliably, and global shortcut registration is restricted.
+ * - Unknown: default to 'floating' as a safe fallback.
+ */
+export function getAlwaysOnTopLevel(displayServer: DisplayServer): string {
+  switch (displayServer) {
+    case 'x11':
+      return 'screen-saver'
+    case 'wayland':
+      return 'floating'
+    default:
+      return 'floating'
+  }
+}
+
 export function createOverlayManager(): OverlayManager {
   let window: BrowserWindow | null = null
   let active = false
   let savedBounds: SavedBounds | null = null
   let savedMaximized = false
   let registeredHotkey: string | null = null
+  const displayServer = detectDisplayServer()
 
   /**
    * Get the bounds of the display the window is currently on.
@@ -57,7 +79,8 @@ export function createOverlayManager(): OverlayManager {
 
     const displayBounds = getTargetDisplayBounds()
 
-    window.setAlwaysOnTop(true, 'screen-saver')
+    const level = getAlwaysOnTopLevel(displayServer) as 'screen-saver' | 'floating'
+    window.setAlwaysOnTop(true, level)
     window.setIgnoreMouseEvents(true, { forward: true })
     window.setSkipTaskbar(true)
     window.setResizable(false)

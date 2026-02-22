@@ -74,3 +74,42 @@ export function getGestureActionLabel(type: GestureType, phase: GesturePhase): s
   // Fallback: "GestureName - Phase"
   return `${getGestureDisplayName(type)} - ${getPhaseDisplayName(phase)}`
 }
+
+/** Hover target type for contextual labeling */
+export type HoverTarget = 'node' | 'point' | 'cluster' | null
+
+/**
+ * Returns a contextual action label based on gesture type, viewMode, and hover target.
+ * Example: Pinch over a node → "Select", Pinch in empty space → "Grab"
+ */
+export function getContextualGestureLabel(
+  type: GestureType,
+  _phase: GesturePhase,
+  _viewMode: string,
+  hoverTarget: HoverTarget
+): string {
+  const hasTarget = hoverTarget === 'node' || hoverTarget === 'point' || hoverTarget === 'cluster'
+
+  switch (type) {
+    case GestureType.Pinch:
+      return hasTarget ? 'Select' : 'Grab'
+    case GestureType.Point:
+      return hasTarget ? 'Inspect' : 'Navigate'
+    case GestureType.FlatDrag:
+      return 'Pan'
+    case GestureType.Twist:
+      return 'Rotate'
+    case GestureType.OpenPalm:
+      return 'Release'
+    case GestureType.Fist:
+      return 'Cancel'
+    case GestureType.TwoHandPinch:
+      return 'Zoom'
+    case GestureType.TwoHandRotate:
+      return 'Orbit'
+    case GestureType.TwoHandPush:
+      return 'Push'
+    default:
+      return getGestureDisplayName(type)
+  }
+}

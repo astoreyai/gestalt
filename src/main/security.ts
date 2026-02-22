@@ -13,7 +13,7 @@ const ALLOWED_DIRS = [
   join(homedir(), 'Documents'),
   join(homedir(), 'Downloads'),
   join(homedir(), 'Desktop'),
-  join(homedir(), '.config', 'tracking'),
+  join(homedir(), '.config', 'gestalt'),
   tmpdir()
 ]
 

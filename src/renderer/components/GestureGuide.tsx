@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { getGestureIcon } from './gesture-icons'
 
 export interface GestureGuideProps {
   visible: boolean
@@ -121,7 +122,10 @@ function GestureTable({ entries }: { entries: GestureEntry[] }): React.ReactElem
     React.createElement('tbody', null,
       entries.map((entry) =>
         React.createElement('tr', { key: entry.gesture },
-          React.createElement('td', { style: tdStyle }, entry.gesture),
+          React.createElement('td', { style: { ...tdStyle, display: 'flex', alignItems: 'center', gap: 6 } },
+            React.createElement('span', { dangerouslySetInnerHTML: { __html: getGestureIcon(entry.gesture) } }),
+            entry.gesture
+          ),
           React.createElement('td', { style: tdStyle }, entry.action),
           React.createElement('td', { style: tdStyle }, entry.description)
         )

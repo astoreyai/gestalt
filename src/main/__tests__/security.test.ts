@@ -12,7 +12,7 @@ describe('isAllowedPath', () => {
   it('should allow files within allowed subdirectories', () => {
     expect(isAllowedPath(join(home, 'Documents', 'data.json'))).toBe(true)
     expect(isAllowedPath(join(home, 'Downloads', 'graph.graphml'))).toBe(true)
-    expect(isAllowedPath(join(home, '.config', 'tracking', 'settings.json'))).toBe(true)
+    expect(isAllowedPath(join(home, '.config', 'gestalt', 'settings.json'))).toBe(true)
     expect(isAllowedPath(join(home, 'Desktop', 'file.txt'))).toBe(true)
   })
 

@@ -248,6 +248,9 @@ export interface AppConfig {
     showMotionMetrics: boolean // Show velocity/rotation near hands
     showMotionTrail: boolean  // Show fading hand motion trails
   }
+  audio: {
+    onsetSound: boolean
+  }
   visualization: {
     defaultView: ViewMode
     lodEnabled: boolean
@@ -257,6 +260,7 @@ export interface AppConfig {
     proximityColoring: boolean // Tint nodes/points by hand distance
   }
   theme: ThemeMode
+  onboardingComplete: boolean
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -289,6 +293,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     showMotionMetrics: false,
     showMotionTrail: true
   },
+  audio: {
+    onsetSound: true
+  },
   visualization: {
     defaultView: 'graph',
     lodEnabled: true,
@@ -297,5 +304,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     showClusterLegend: true,
     proximityColoring: true
   },
-  theme: 'system'
+  theme: 'system',
+  onboardingComplete: false
 }

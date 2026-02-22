@@ -47,6 +47,94 @@ export const DEFAULT_STEREO_CONFIG: StereoConfig = {
   minDepth: 0.1
 }
 
+// ─── Running Variance (Welford's algorithm) ─────────────────────
+
+/**
+ * Online variance estimator using Welford's algorithm.
+ * Used for inverse-variance weighting in stereo fusion.
+ * Requires at least `minSamples` observations before the variance is considered reliable.
+ */
+export class RunningVariance {
+  private _count = 0
+  private _mean = 0
+  private _m2 = 0
+
+  constructor(private _minSamples: number = 5) {}
+
+  push(value: number): void {
+    this._count++
+    const delta = value - this._mean
+    this._mean += delta / this._count
+    const delta2 = value - this._mean
+    this._m2 += delta * delta2
+  }
+
+  get variance(): number {
+    return this._count < 2 ? Infinity : this._m2 / (this._count - 1)
+  }
+
+  get isReady(): boolean {
+    return this._count >= this._minSamples
+  }
+
+  get count(): number {
+    return this._count
+  }
+
+  reset(): void {
+    this._count = 0
+    this._mean = 0
+    this._m2 = 0
+  }
+}
+
+// ─── Inverse-Variance Fusion ────────────────────────────────────
+
+/**
+ * Fuse two depth estimates using inverse-variance weighting.
+ * The source with lower variance (more reliable) gets higher weight.
+ *
+ * Guards against degenerate cases:
+ * - Both variances zero/negative: simple average
+ * - One variance zero/negative: use that source directly (perfect confidence)
+ * - Normal case: weighted by 1/variance
+ */
+export function inverseVarianceFuse(
+  stereoZ: number, stereoVar: number,
+  monoZ: number, monoVar: number
+): number {
+  if (stereoVar <= 0 && monoVar <= 0) return (stereoZ + monoZ) / 2
+  if (stereoVar <= 0) return stereoZ
+  if (monoVar <= 0) return monoZ
+
+  const wStereo = 1 / stereoVar
+  const wMono = 1 / monoVar
+  return (stereoZ * wStereo + monoZ * wMono) / (wStereo + wMono)
+}
+
+// ─── Per-Landmark Variance Trackers ─────────────────────────────
+
+// Two hands, each with up to 21 landmarks, tracking stereo and mono variance
+const LANDMARK_COUNT = 21
+const _stereoVariance: RunningVariance[][] = [
+  Array.from({ length: LANDMARK_COUNT }, () => new RunningVariance()),
+  Array.from({ length: LANDMARK_COUNT }, () => new RunningVariance())
+]
+const _monoVariance: RunningVariance[][] = [
+  Array.from({ length: LANDMARK_COUNT }, () => new RunningVariance()),
+  Array.from({ length: LANDMARK_COUNT }, () => new RunningVariance())
+]
+
+/** Reset all per-landmark variance estimators (call on tracking loss or camera change) */
+export function resetVarianceEstimators(): void {
+  for (let h = 0; h < 2; h++) {
+    for (let i = 0; i < LANDMARK_COUNT; i++) {
+      _stereoVariance[h][i].reset()
+      _monoVariance[h][i].reset()
+    }
+  }
+}
+
 // ─── Fusion ──────────────────────────────────────────────────────
 
 /**
@@ -123,6 +211,11 @@ function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
   ensurePool(fusedLandmarks, landmarkCount)
   ensurePool(fusedWorldLandmarks, worldCount)
 
+  // Select variance trackers for this hand (0 = left/first, 1 = right/second)
+  const handVarIdx = poolIdx & 1
+  const stereoVar = _stereoVariance[handVarIdx]
+  const monoVar = _monoVariance[handVarIdx]
+
   for (let i = 0; i < landmarkCount; i++) {
     const pLm = primary.landmarks[i]
     const sLm = secondary.landmarks[i]
@@ -138,12 +231,27 @@ function fuseHands(primary: Hand, secondary: Hand, cfg: StereoConfig): Hand {
 
     // Outlier rejection: if stereo depth is outside plausible range, fall back to monocular z
     const stereoValid = stereoZ >= cfg.minDepth && stereoZ <= cfg.maxDepth
-    // Disparity confidence threshold derived from stereo geometry:
-    // At maxDepth, expected disparity = baseline*focalLength/maxDepth
-    // Confidence ramps from 0 at this minimum up to 1 at larger disparities
-    const minExpectedDisparity = (cfg.baselineDistance * cfg.focalLength) / cfg.maxDepth
-    const disparityConfidence = stereoValid ? Math.min(disparity / (minExpectedDisparity * 3), 1.0) : 0
-    const fusedZ = disparityConfidence * stereoZ + (1 - disparityConfidence) * avgOriginalZ
+
+    // Feed running variance estimators
+    if (stereoValid && i < LANDMARK_COUNT) {
+      stereoVar[i].push(stereoZ)
+      monoVar[i].push(avgOriginalZ)
+    }
+
+    // Inverse-variance fusion: when both estimators have enough samples,
+    // weight each source by 1/variance (more reliable source gets more weight).
+    // Cold start fallback: use the existing disparity-confidence blend.
+    let fusedZ: number
+    if (i < LANDMARK_COUNT && stereoValid && stereoVar[i].isReady && monoVar[i].isReady) {
+      fusedZ = inverseVarianceFuse(stereoZ, stereoVar[i].variance, avgOriginalZ, monoVar[i].variance)
+    } else {
+      // Disparity confidence threshold derived from stereo geometry:
+      // At maxDepth, expected disparity = baseline*focalLength/maxDepth
+      // Confidence ramps from 0 at this minimum up to 1 at larger disparities
+      const minExpectedDisparity = (cfg.baselineDistance * cfg.focalLength) / cfg.maxDepth
+      const disparityConfidence = stereoValid ? Math.min(disparity / (minExpectedDisparity * 3), 1.0) : 0
+      fusedZ = disparityConfidence * stereoZ + (1 - disparityConfidence) * avgOriginalZ
+    }
 
     const out = fusedLandmarks[i]
     out.x = avgX; out.y = avgY; out.z = fusedZ

@@ -1,0 +1,2 @@
+# Gestalt — Allow input group access to /dev/uinput for virtual mouse/keyboard
+KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"

@@ -289,7 +289,7 @@ function setupIpcHandlers(): void {
       throw new Error('Invalid sample name')
     }
     const samplesDir = join(app.isPackaged
-      ? join(process.resourcesPath, 'assets', 'samples')
+      ? join(process.resourcesPath, 'samples')
       : join(__dirname, '../../assets/samples'))
     const filePath = join(samplesDir, name)
     // Verify resolved path stays within samples dir

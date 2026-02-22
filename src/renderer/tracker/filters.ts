@@ -263,6 +263,114 @@ JOINT_TIER[LANDMARK.PINKY_PIP] = PIP_CONFIG
 JOINT_TIER[LANDMARK.PINKY_DIP] = DIP_CONFIG
 JOINT_TIER[LANDMARK.PINKY_TIP] = TIP_CONFIG
 
+// ─── Z-Normalization ────────────────────────────────────────────
+
+/**
+ * Palm landmark indices used for centroid computation:
+ * wrist (0), index_mcp (5), middle_mcp (9), ring_mcp (13), pinky_mcp (17)
+ */
+const PALM_INDICES = [
+  LANDMARK.WRIST,
+  LANDMARK.INDEX_MCP,
+  LANDMARK.MIDDLE_MCP,
+  LANDMARK.RING_MCP,
+  LANDMARK.PINKY_MCP
+]
+const INV_PALM_COUNT = 1 / PALM_INDICES.length
+
+/**
+ * Subtract palm centroid z from all landmarks, reducing correlated depth noise.
+ *
+ * MediaPipe z-values have a large common-mode offset that shifts with hand distance.
+ * By subtracting the palm centroid, each landmark's z becomes relative to the palm
+ * plane, making finger curl detection more robust to depth variations.
+ *
+ * @param landmarks 21-landmark array (mutated in-place for zero-alloc operation)
+ * @returns The subtracted centroid value (needed for denormalization)
+ */
+export function normalizeZ(landmarks: Landmark[]): number {
+  let sum = 0
+  for (const idx of PALM_INDICES) {
+    if (idx < landmarks.length) sum += landmarks[idx].z
+  }
+  const centroid = sum * INV_PALM_COUNT
+
+  for (let i = 0; i < landmarks.length; i++) {
+    landmarks[i].z -= centroid
+  }
+
+  return centroid
+}
+
+/**
+ * Restore original z-values by adding the centroid back.
+ * Call after processing to return landmarks to their original coordinate space.
+ *
+ * @param landmarks 21-landmark array (mutated in-place)
+ * @param centroid  The value returned by normalizeZ()
+ */
+export function denormalizeZ(landmarks: Landmark[], centroid: number): void {
+  for (let i = 0; i < landmarks.length; i++) {
+    landmarks[i].z += centroid
+  }
+}
+
+// ─── Band-Reject (Notch) Filter for Tremor ──────────────────────
+
+/**
+ * 2nd-order Butterworth band-reject (notch) filter.
+ *
+ * Targets the 8-12Hz physiological tremor band. This frequency range
+ * corresponds to essential tremor and action tremor that contaminates
+ * hand-tracking signals. The filter preserves voluntary motion (< 5Hz)
+ * and fast gesture transitions while suppressing involuntary oscillations.
+ *
+ * Design: Direct Form I biquad with precomputed coefficients.
+ */
+export class BandRejectFilter {
+  private _x1 = 0; private _x2 = 0
+  private _y1 = 0; private _y2 = 0
+  private _b0: number; private _b1: number; private _b2: number
+  private _a1: number; private _a2: number
+
+  /**
+   * @param centerFreq Center frequency of the rejection band in Hz. Default: 10
+   * @param bandwidth  Width of the rejection band in Hz. Default: 4 (covers 8-12Hz)
+   * @param sampleRate Sample rate in Hz (camera framerate). Default: 60
+   */
+  constructor(
+    centerFreq: number = 10,
+    bandwidth: number = 4,
+    sampleRate: number = 60
+  ) {
+    const w0 = TWO_PI * centerFreq / sampleRate
+    const bw = TWO_PI * bandwidth / sampleRate
+    const Q = w0 / bw
+    const alpha = Math.sin(w0) / (2 * Q)
+
+    const a0 = 1 + alpha
+    this._b0 = 1 / a0
+    this._b1 = -2 * Math.cos(w0) / a0
+    this._b2 = 1 / a0
+    this._a1 = -2 * Math.cos(w0) / a0
+    this._a2 = (1 - alpha) / a0
+  }
+
+  /** Process one sample through the filter. */
+  filter(x: number): number {
+    const y = this._b0 * x + this._b1 * this._x1 + this._b2 * this._x2
+              - this._a1 * this._y1 - this._a2 * this._y2
+    this._x2 = this._x1; this._x1 = x
+    this._y2 = this._y1; this._y1 = y
+    return y
+  }
+
+  /** Reset internal state (call on tracking loss). */
+  reset(): void {
+    this._x1 = this._x2 = this._y1 = this._y2 = 0
+  }
+}
+
 // ─── Landmark Smoother ───────────────────────────────────────────
 
 /**
