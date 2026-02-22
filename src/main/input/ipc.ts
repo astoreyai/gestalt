@@ -6,6 +6,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc-channels'
 import type { GestureEvent, MouseCommand, KeyboardCommand } from '@shared/protocol'
+import { GestureType, GesturePhase } from '@shared/protocol'
 import { MouseCommandSchema, KeyboardCommandSchema, GestureEventSchema } from '../ipc-validators'
 import { VirtualMouse } from './mouse'
 import { VirtualKeyboard } from './keyboard'
@@ -16,6 +17,8 @@ export class InputIpcHandler {
   private keyboard: VirtualKeyboard
   private macros: MacroEngine
   private enabled = true
+  private overlayMode = false
+  private prevOverlayPos: { x: number; y: number } | null = null
 
   // Stored handler references for proper cleanup
    
@@ -82,6 +85,12 @@ export class InputIpcHandler {
 
   /** Route a gesture event to the appropriate handler */
   handleGesture(gesture: GestureEvent): void {
+    // In overlay mode, route gestures to OS-level native input
+    if (this.overlayMode) {
+      this.handleOverlayGesture(gesture)
+      return
+    }
+
     // Check for keyboard macro first
     const macro = this.macros.getMacro(gesture.type)
     if (macro && gesture.phase === 'onset') {
@@ -91,6 +100,60 @@ export class InputIpcHandler {
 
     // Default gesture → mouse mapping is handled by the scene controller
     // in the renderer. This only handles OS-level input forwarding.
+  }
+
+  /** Handle gesture events in overlay mode — maps to OS mouse/keyboard */
+  private handleOverlayGesture(gesture: GestureEvent): void {
+    const { type, phase, position } = gesture
+
+    switch (type) {
+      case GestureType.Point:
+        if (phase === GesturePhase.Hold || phase === GesturePhase.Onset) {
+          this.mouse.moveToNormalized(position.x, position.y)
+        }
+        break
+
+      case GestureType.Pinch:
+        if (phase === GesturePhase.Onset) {
+          this.mouse.execute({ target: 'mouse', action: 'click', button: 'left' })
+          this.prevOverlayPos = { x: position.x, y: position.y }
+        } else if (phase === GesturePhase.Hold && this.prevOverlayPos) {
+          // Drag: move while pinching
+          this.mouse.moveToNormalized(position.x, position.y)
+        }
+        if (phase === GesturePhase.Release) {
+          this.prevOverlayPos = null
+        }
+        break
+
+      case GestureType.Fist:
+        if (phase === GesturePhase.Onset) {
+          this.mouse.execute({ target: 'mouse', action: 'click', button: 'right' })
+        }
+        break
+
+      case GestureType.FlatDrag:
+        if (phase === GesturePhase.Hold) {
+          const scrollDelta = (position.y - 0.5) * 10
+          this.mouse.execute({ target: 'mouse', action: 'scroll', deltaY: scrollDelta })
+        }
+        break
+
+      // OpenPalm: reserved — no action
+      default:
+        break
+    }
+  }
+
+  /** Set overlay mode — changes gesture routing behavior */
+  setOverlayMode(active: boolean): void {
+    this.overlayMode = active
+    this.prevOverlayPos = null
+  }
+
+  /** Update the mouse resolution to span all monitors */
+  updateMouseResolution(width: number, height: number): void {
+    this.mouse.updateResolution(width, height)
   }
 
   /** Enable/disable input forwarding */

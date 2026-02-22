@@ -251,6 +251,7 @@ export function PointCloud({
     <points
       ref={pointsRef}
       geometry={geometry}
+      frustumCulled={false}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
     >

@@ -73,6 +73,8 @@ export interface UIState {
   removeToast: (id: string) => void
   activeModal: ModalId
   setActiveModal: (modal: ModalId) => void
+  overlayMode: boolean
+  setOverlayMode: (active: boolean) => void
 }
 
 // ─── Visual State ─────────────────────────────────────────
@@ -184,6 +186,8 @@ export const useUIStore = create<UIState>((set) => ({
     })),
   activeModal: null,
   setActiveModal: (modal) => set({ activeModal: modal }),
+  overlayMode: false,
+  setOverlayMode: (active) => set({ overlayMode: active }),
 }))
 
 // ─── Combined App State (backward compatibility) ─────────
@@ -236,6 +240,10 @@ export interface AppState {
   // Modal management
   activeModal: ModalId
   setActiveModal: (modal: ModalId) => void
+
+  // Overlay mode
+  overlayMode: boolean
+  setOverlayMode: (active: boolean) => void
 }
 
 /**
@@ -306,7 +314,7 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
     graphData, embeddingData,
     activeGesture, lastGestureType, trackingEnabled,
     config, calibrated,
-    error, toasts, activeModal,
+    error, toasts, activeModal, overlayMode,
     ..._rest
   } = partial as Partial<AppState>
 
@@ -343,6 +351,7 @@ useAppStore.setState = (partial: Partial<AppState>): void => {
   if (error !== undefined) uiPartial.error = error
   if (toasts !== undefined) uiPartial.toasts = toasts
   if (activeModal !== undefined) uiPartial.activeModal = activeModal
+  if (overlayMode !== undefined) uiPartial.overlayMode = overlayMode
   if (Object.keys(uiPartial).length > 0) useUIStore.setState(uiPartial)
 }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen } from 'electron'
 import { join } from 'path'
 import { readFile, stat } from 'fs/promises'
 import { IPC } from '@shared/ipc-channels'
@@ -11,6 +11,8 @@ import { BusServer } from './bus/server'
 import { RateLimiter } from './rate-limiter'
 import { deepMerge } from './deep-merge'
 import { initUpdater } from './updater'
+import { createOverlayManager } from './overlay'
+import type { OverlayManager } from './overlay'
 
 // ─── Global error handlers ──────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
@@ -30,6 +32,7 @@ if (app.commandLine) {
 
 let mainWindow: BrowserWindow | null = null
 let busServer: BusServer | null = null
+let overlayManager: OverlayManager | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -37,6 +40,10 @@ function createWindow(): void {
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    transparent: true,
+    frame: false,
+    hasShadow: false,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -301,6 +308,33 @@ function setupIpcHandlers(): void {
       throw new Error(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
+
+  // Overlay mode
+  ipcMain.handle(IPC.OVERLAY_TOGGLE, () => {
+    return overlayManager?.toggle() ?? false
+  })
+
+  ipcMain.handle(IPC.OVERLAY_GET, () => {
+    return overlayManager?.isActive() ?? false
+  })
+
+  // Window controls (frameless)
+  ipcMain.on(IPC.WINDOW_MINIMIZE, () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.on(IPC.WINDOW_MAXIMIZE, () => {
+    if (!mainWindow) return
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow.maximize()
+    }
+  })
+
+  ipcMain.on(IPC.WINDOW_CLOSE, () => {
+    mainWindow?.close()
+  })
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────
@@ -315,9 +349,13 @@ app.whenReady().then(() => {
     initUpdater()
   }
 
-  // Start the bus server if enabled
+  // Initialize overlay manager
   const persistence = getPersistence()
   const config = persistence.getPersistedConfig()
+  overlayManager = createOverlayManager()
+  overlayManager.init(mainWindow!, config.overlay?.hotkey ?? 'Super+G')
+
+  // Start the bus server if enabled
   if (config.bus.enabled) {
     busServer = new BusServer({ port: config.bus.port })
     busServer.start().catch(err => {
@@ -333,6 +371,10 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  if (overlayManager) {
+    overlayManager.destroy()
+    overlayManager = null
+  }
   if (busServer) {
     busServer.stop().catch(() => {})
   }

@@ -25,6 +25,7 @@ import { HUD } from './components/HUD'
 import { ToastQueue } from './components/ToastQueue'
 import { ModalContainer } from './components/ModalContainer'
 import { SelectionPanel } from './components/SelectionPanel'
+import { HandChordOverlay } from './components/HandChordOverlay'
 import { useHandTracker } from './hooks/useHandTracker'
 import { validateData } from './data/validators'
 import { dispatchGesture } from './controller/dispatcher'
@@ -67,6 +68,8 @@ export function App(): React.ReactElement {
   const removeToast = useUIStore((s) => s.removeToast)
   const activeModal = useUIStore((s) => s.activeModal)
   const setActiveModal = useUIStore((s) => s.setActiveModal)
+  const overlayMode = useUIStore((s) => s.overlayMode)
+  const setOverlayMode = useUIStore((s) => s.setOverlayMode)
 
   // Wrap setGraphData/setEmbeddingData to also set viewMode (mirrors useAppStore behavior)
   const setGraphData = useCallback(
@@ -146,6 +149,17 @@ export function App(): React.ReactElement {
     if (!engine) return
 
     const events = engine.processFrame(landmarkFrame)
+
+    // In overlay mode, forward all events to main process for native input
+    if (overlayMode) {
+      for (const event of events) {
+        window.api.sendGestureEvent(event)
+      }
+      // Still update activeGesture for overlay display
+      const best = events.length > 0 ? events[0] : null
+      setActiveGesture(best)
+      return
+    }
 
     // Split events by hand and pick the best event per hand
     const leftEvents = events.filter(ev => ev.hand === 'left')
@@ -301,7 +315,7 @@ export function App(): React.ReactElement {
     // Batch state updates
     if (hoverChanged) setGestureHoverPos(newHover)
     if (dragChanged) setDragPositions(newDrag)
-  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData])
+  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, selectNode, selectCluster, setActiveGesture, graphData, overlayMode])
 
   // Update gesture engine config when settings change
   useEffect(() => {
@@ -448,6 +462,13 @@ export function App(): React.ReactElement {
     return () => timers.forEach(clearTimeout)
   }, [toasts, removeToast])
 
+  // Overlay mode IPC listener
+  useEffect(() => {
+    const unsub = window.api.onOverlayChanged(setOverlayMode)
+    window.api.getOverlayState().then(setOverlayMode)
+    return () => { unsub() }
+  }, [setOverlayMode])
+
   const handleGraphLoaded = useCallback((data: GraphData) => {
     setGraphData(data)
     setActiveModal(null)
@@ -547,6 +568,7 @@ export function App(): React.ReactElement {
     <div
       style={{
         width: '100%', height: '100%', position: 'relative',
+        background: overlayMode ? 'transparent' : 'var(--bg-primary)',
         outline: rootDragOver ? '2px solid var(--accent)' : 'none'
       }}
       onClick={handleRootClick}
@@ -554,8 +576,8 @@ export function App(): React.ReactElement {
       onDragOver={handleRootDragOver}
       onDragLeave={handleRootDragLeave}
     >
-      {/* 3D Canvas */}
-      <Canvas
+      {/* 3D Canvas — hidden in overlay mode */}
+      {!overlayMode && <Canvas
         camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
         frameloop="always"
@@ -606,9 +628,9 @@ export function App(): React.ReactElement {
         </Suspense>
         <OrbitControls ref={orbitRef} enableDamping dampingFactor={0.1} />
         {import.meta.env.DEV && <Stats />}
-      </Canvas>
+      </Canvas>}
 
-      {/* HUD -- Top Bar */}
+      {/* HUD -- Top Bar (visible in both modes for window controls) */}
       <HUD
         hasGraph={hasGraph}
         hasManifold={hasManifold}
@@ -620,12 +642,12 @@ export function App(): React.ReactElement {
         cameraCount={cameraCount}
       />
 
-      {/* Selection Info Panel */}
-      <SelectionPanel
+      {/* Selection Info Panel — hidden in overlay mode */}
+      {!overlayMode && <SelectionPanel
         selectedNodeInfo={selectedNodeInfo}
         selectedPointInfo={selectedPointInfo}
         onDeselect={() => selectNode(null)}
-      />
+      />}
 
       {/* Gesture Overlay */}
       <GestureOverlay
@@ -636,11 +658,17 @@ export function App(): React.ReactElement {
         height={windowSize.height}
       />
 
-      {/* Toast Queue */}
-      <ToastQueue toasts={toasts} onDismiss={removeToast} />
+      {/* Hand Chord Overlays */}
+      <HandChordOverlay
+        landmarkFrame={landmarkFrame}
+        visible={trackingEnabled}
+      />
 
-      {/* Modal Container */}
-      <ModalContainer activeModal={activeModal} onClose={handleCloseModal}>
+      {/* Toast Queue — hidden in overlay mode */}
+      {!overlayMode && <ToastQueue toasts={toasts} onDismiss={removeToast} />}
+
+      {/* Modal Container — hidden in overlay mode */}
+      {!overlayMode && <ModalContainer activeModal={activeModal} onClose={handleCloseModal}>
         {/* Data Loader Modal */}
         {activeModal === 'dataLoader' && (
           <>
@@ -696,10 +724,10 @@ export function App(): React.ReactElement {
           />
         )}
 
-      </ModalContainer>
+      </ModalContainer>}
 
       {/* Settings Panel — rendered outside ModalContainer as a side panel overlay */}
-      {activeModal === 'settings' && (
+      {!overlayMode && activeModal === 'settings' && (
         <>
           <div
             onClick={handleCloseModal}

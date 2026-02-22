@@ -49,6 +49,16 @@ export const IPC = {
   UPDATE_INSTALL: 'update:install',
   UPDATE_PROGRESS: 'update:progress',
 
+  // Overlay mode
+  OVERLAY_TOGGLE: 'overlay:toggle',
+  OVERLAY_CHANGED: 'overlay:changed',
+  OVERLAY_GET: 'overlay:get-state',
+
+  // Window controls (frameless)
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_MAXIMIZE: 'window:maximize',
+  WINDOW_CLOSE: 'window:close',
+
   // App lifecycle
   APP_READY: 'app:ready',
   APP_QUIT: 'app:quit',

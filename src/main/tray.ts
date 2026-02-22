@@ -8,6 +8,7 @@ export interface TrayState {
   trackingEnabled: boolean
   busEnabled: boolean
   connectedPrograms: number
+  overlayActive: boolean
 }
 
 export class SystemTray {
@@ -15,10 +16,12 @@ export class SystemTray {
   private state: TrayState = {
     trackingEnabled: true,
     busEnabled: true,
-    connectedPrograms: 0
+    connectedPrograms: 0,
+    overlayActive: false
   }
   private onToggleTracking: ((enabled: boolean) => void) | null = null
   private onToggleBus: ((enabled: boolean) => void) | null = null
+  private onToggleOverlay: (() => void) | null = null
   private onShowWindow: (() => void) | null = null
   private onQuit: (() => void) | null = null
 
@@ -26,11 +29,13 @@ export class SystemTray {
   init(options: {
     onToggleTracking: (enabled: boolean) => void
     onToggleBus: (enabled: boolean) => void
+    onToggleOverlay: () => void
     onShowWindow: () => void
     onQuit: () => void
   }): void {
     this.onToggleTracking = options.onToggleTracking
     this.onToggleBus = options.onToggleBus
+    this.onToggleOverlay = options.onToggleOverlay
     this.onShowWindow = options.onShowWindow
     this.onQuit = options.onQuit
 
@@ -79,6 +84,14 @@ export class SystemTray {
           this.state.busEnabled = !this.state.busEnabled
           this.onToggleBus?.(this.state.busEnabled)
           this.updateMenu()
+        }
+      },
+      {
+        label: `Overlay: ${this.state.overlayActive ? 'ON' : 'OFF'}`,
+        type: 'checkbox',
+        checked: this.state.overlayActive,
+        click: () => {
+          this.onToggleOverlay?.()
         }
       },
       {

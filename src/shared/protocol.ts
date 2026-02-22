@@ -230,6 +230,9 @@ export interface AppConfig {
     port: number // WebSocket server port
     enabled: boolean
   }
+  overlay: {
+    hotkey: string // Global hotkey to toggle overlay mode (e.g. 'Super+G')
+  }
   visualization: {
     defaultView: ViewMode
     lodEnabled: boolean
@@ -261,6 +264,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   bus: {
     port: 9876,
     enabled: true
+  },
+  overlay: {
+    hotkey: 'Super+G'
   },
   visualization: {
     defaultView: 'graph',
