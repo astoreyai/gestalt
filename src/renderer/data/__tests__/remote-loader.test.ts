@@ -42,7 +42,7 @@ describe('validateUrl', () => {
   })
 
   it('should reject javascript: protocol', () => {
-    // eslint-disable-next-line no-script-url
+     
     const result = validateUrl('javascript:alert(1)')
     expect(typeof result).toBe('string')
   })

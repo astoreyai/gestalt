@@ -220,7 +220,7 @@ describe('supportsOffscreenCanvas', () => {
 
   it('should return false when OffscreenCanvas is removed', () => {
     const original = globalThis.OffscreenCanvas
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     delete (globalThis as any).OffscreenCanvas
 
     expect(supportsOffscreenCanvas()).toBe(false)
@@ -243,7 +243,7 @@ describe('HandTracker worker mode', () => {
     originalOffscreenCanvas = globalThis.OffscreenCanvas
 
     // Mock Worker constructor to return our MockWorker
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     globalThis.Worker = vi.fn((() => {
       mockWorkerInstance = new MockWorker()
       return mockWorkerInstance as unknown as Worker
@@ -251,7 +251,7 @@ describe('HandTracker worker mode', () => {
 
     // Ensure OffscreenCanvas exists
     if (typeof globalThis.OffscreenCanvas === 'undefined') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       globalThis.OffscreenCanvas = class OffscreenCanvas {
         width: number
         height: number
@@ -317,7 +317,7 @@ describe('HandTracker worker mode', () => {
 
   it('should fall back to direct mode when OffscreenCanvas is not supported', async () => {
     // Remove OffscreenCanvas
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     delete (globalThis as any).OffscreenCanvas
 
     const tracker = new HandTracker({ useWorker: true })
@@ -600,7 +600,7 @@ describe('HandTracker direct mode (backward compatibility)', () => {
 
   it('should use direct mode when useWorker is true but initialize() fails worker', async () => {
     // Remove OffscreenCanvas to force fallback
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     delete (globalThis as any).OffscreenCanvas
 
     const tracker = new HandTracker({ useWorker: true, smoothing: false })

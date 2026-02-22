@@ -67,8 +67,9 @@ export function calculateLOD(
   }
 }
 
-// Reusable matrix for frustum extraction to avoid allocations
+// Reusable objects for frustum extraction to avoid per-call allocations
 const _projScreenMatrix = new Matrix4()
+const _frustum = new Frustum()
 
 /**
  * Check whether a 3D position is within the camera's view frustum.
@@ -83,20 +84,19 @@ export function isInFrustum(
   camera: Camera,
   margin: number = 0
 ): boolean {
-  const frustum = new Frustum()
   _projScreenMatrix.multiplyMatrices(
     camera.projectionMatrix,
     camera.matrixWorldInverse
   )
-  frustum.setFromProjectionMatrix(_projScreenMatrix)
+  _frustum.setFromProjectionMatrix(_projScreenMatrix)
 
   if (margin <= 0) {
-    return frustum.containsPoint(position)
+    return _frustum.containsPoint(position)
   }
 
   // With margin, check each plane with an expanded distance
   for (let i = 0; i < 6; i++) {
-    const plane = frustum.planes[i]
+    const plane = _frustum.planes[i]
     if (plane.distanceToPoint(position) < -margin) {
       return false
     }

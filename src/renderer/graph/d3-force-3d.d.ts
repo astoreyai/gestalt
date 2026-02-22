@@ -3,7 +3,7 @@
  * Only the subset of the API used by this project is typed.
  */
 declare module 'd3-force-3d' {
-  // eslint-disable-next-line @typescript-eslint/no-empty-interface
+   
   interface SimulationNode {
     index?: number
     x?: number
@@ -81,15 +81,15 @@ declare module 'd3-force-3d' {
     strength(strength: number): this
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   export function forceSimulation(nodes?: any[], numDimensions?: number): ForceSimulation<any>
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   export function forceLink(links?: any[]): ForceLink<any, any>
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   export function forceManyBody(): ForceManyBody<any>
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   export function forceCenter(x?: number, y?: number, z?: number): ForceCenter<any>
 }

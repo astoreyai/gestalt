@@ -99,7 +99,8 @@ export class GestureStateMachine {
           this.releaseTime = timestamp
           return GesturePhase.Release
         }
-        return null
+        // Continue emitting Hold every frame for continuous gestures (pan, rotate, point)
+        return GesturePhase.Hold
 
       case GestureState.Release:
         // Transition to cooldown immediately
@@ -129,33 +130,70 @@ interface HandOrientation {
   timestamp: number
 }
 
+// ─── Gesture Index Mapping (avoids per-frame string concat) ─────
+
+/** All gesture types in a fixed order for numeric indexing. */
+const ALL_GESTURE_TYPES: readonly GestureType[] = [
+  GestureType.Pinch,
+  GestureType.Point,
+  GestureType.OpenPalm,
+  GestureType.Fist,
+  GestureType.LShape,
+  GestureType.FlatDrag,
+  GestureType.Twist,
+  GestureType.TwoHandPinch,
+  GestureType.TwoHandRotate,
+  GestureType.TwoHandPush
+] as const
+
+/** Map GestureType enum value -> numeric index for O(1) array lookup. */
+const GESTURE_INDEX: Record<string, number> = {}
+for (let i = 0; i < ALL_GESTURE_TYPES.length; i++) {
+  GESTURE_INDEX[ALL_GESTURE_TYPES[i]] = i
+}
+
+/** Hand index: left = 0, right = 1. */
+function handIndex(hand: Handedness): number {
+  return hand === 'left' ? 0 : 1
+}
+
 /**
  * Main gesture recognition engine.
  * Takes LandmarkFrames, runs classifiers, manages state machines,
  * and emits GestureEvents.
  */
 export class GestureEngine {
-  private stateMachines: Map<string, GestureStateMachine> = new Map()
+  /**
+   * 2D array of state machines: [handIndex (0|1)][gestureIndex].
+   * Pre-allocated eagerly to avoid per-frame Map lookups and string concatenation.
+   */
+  private stateMachineGrid: GestureStateMachine[][]
   private previousOrientations: Map<Handedness, HandOrientation> = new Map()
   private config: GestureConfig
 
   constructor(config: Partial<GestureConfig> = {}) {
     this.config = { ...DEFAULT_GESTURE_CONFIG, ...config }
+    this.stateMachineGrid = this._createStateMachineGrid()
   }
 
-  /** Get or create a state machine for a gesture-hand combination */
-  private getStateMachine(gestureType: GestureType, hand: Handedness): GestureStateMachine {
-    const key = `${gestureType}:${hand}`
-    let sm = this.stateMachines.get(key)
-    if (!sm) {
-      sm = new GestureStateMachine(
-        this.config.minOnsetFrames,
-        this.config.minHoldDuration,
-        this.config.cooldownDuration
-      )
-      this.stateMachines.set(key, sm)
+  /** Create the full 2D grid of state machines (2 hands x N gesture types). */
+  private _createStateMachineGrid(): GestureStateMachine[][] {
+    const grid: GestureStateMachine[][] = [[], []]
+    for (let h = 0; h < 2; h++) {
+      for (let g = 0; g < ALL_GESTURE_TYPES.length; g++) {
+        grid[h][g] = new GestureStateMachine(
+          this.config.minOnsetFrames,
+          this.config.minHoldDuration,
+          this.config.cooldownDuration
+        )
+      }
     }
-    return sm
+    return grid
+  }
+
+  /** Get the state machine for a gesture-hand combination via O(1) array lookup. */
+  private getStateMachine(gestureType: GestureType, hand: Handedness): GestureStateMachine {
+    return this.stateMachineGrid[handIndex(hand)][GESTURE_INDEX[gestureType]]
   }
 
   /** Compute hand orientation angle for twist detection */
@@ -211,6 +249,24 @@ export class GestureEngine {
     }
   }
 
+  /** Get gesture-specific position: finger tip for Point, pinch midpoint for Pinch, palm for others */
+  private gesturePosition(hand: Hand, gestureType: GestureType): { x: number; y: number; z: number } {
+    if (gestureType === GestureType.Point) {
+      const tip = hand.landmarks[LANDMARK.INDEX_TIP]
+      return { x: tip.x, y: tip.y, z: tip.z }
+    }
+    if (gestureType === GestureType.Pinch) {
+      const thumb = hand.landmarks[LANDMARK.THUMB_TIP]
+      const index = hand.landmarks[LANDMARK.INDEX_TIP]
+      return {
+        x: (thumb.x + index.x) / 2,
+        y: (thumb.y + index.y) / 2,
+        z: (thumb.z + index.z) / 2
+      }
+    }
+    return this.handCenter(hand)
+  }
+
   /**
    * Process a single landmark frame and return all gesture events.
    */
@@ -218,6 +274,15 @@ export class GestureEngine {
     const events: GestureEvent[] = []
     const { hands, timestamp } = frame
     const effectiveConfig = this.getEffectiveConfig()
+
+    // ─── Pre-compute per-hand results (avoids redundant calls) ─
+    const handCenters = new Map<Handedness, { x: number; y: number; z: number }>()
+    const pinchResults = new Map<Handedness, { detected: boolean; distance: number }>()
+
+    for (const hand of hands) {
+      handCenters.set(hand.handedness, this.handCenter(hand))
+      pinchResults.set(hand.handedness, detectPinch(hand, effectiveConfig))
+    }
 
     // ─── Single-hand gestures ─────────────────────────────────
     for (const hand of hands) {
@@ -227,8 +292,10 @@ export class GestureEngine {
       // Also check for twist independently
       const twist = this.detectTwist(hand, timestamp)
 
+      // Retrieve cached per-hand results
+      const cachedPinch = pinchResults.get(hand.handedness)!
+
       // Update all state machines for this hand
-      // For each gesture type, update with whether it was detected
       const singleHandTypes = [
         GestureType.Pinch,
         GestureType.Point,
@@ -249,10 +316,10 @@ export class GestureEngine {
             phase,
             hand: hand.handedness,
             confidence: detected ? classification!.confidence : 0,
-            position: this.handCenter(hand),
+            position: this.gesturePosition(hand, gestureType),
             timestamp,
             data: gestureType === GestureType.Pinch
-              ? { distance: detectPinch(hand, effectiveConfig).distance }
+              ? { distance: cachedPinch.distance }
               : undefined
           })
         }
@@ -269,7 +336,7 @@ export class GestureEngine {
             phase,
             hand: hand.handedness,
             confidence: twist.detected ? Math.min(1, Math.abs(twist.rotation) / Math.PI) : 0,
-            position: this.handCenter(hand),
+            position: handCenters.get(hand.handedness)!,
             timestamp,
             data: { rotation: twist.rotation }
           })
@@ -283,18 +350,18 @@ export class GestureEngine {
       const rightHand = hands.find((h) => h.handedness === 'right')
 
       if (leftHand && rightHand) {
-        // Two-hand pinch: both hands pinching simultaneously
-        const leftPinch = detectPinch(leftHand, effectiveConfig)
-        const rightPinch = detectPinch(rightHand, effectiveConfig)
+        // Reuse cached pinch results from the per-hand loop above
+        const leftPinch = pinchResults.get('left')!
+        const rightPinch = pinchResults.get('right')!
         const twoHandPinchDetected = leftPinch.detected && rightPinch.detected
 
         const sm = this.getStateMachine(GestureType.TwoHandPinch, 'right')
         const phase = sm.update(twoHandPinchDetected, timestamp)
 
         if (phase !== null) {
-          // Position is midpoint between the two hands
-          const leftCenter = this.handCenter(leftHand)
-          const rightCenter = this.handCenter(rightHand)
+          // Reuse cached hand center positions
+          const leftCenter = handCenters.get('left')!
+          const rightCenter = handCenters.get('right')!
           const handDistance = distance(
             leftHand.landmarks[LANDMARK.THUMB_TIP],
             rightHand.landmarks[LANDMARK.THUMB_TIP]
@@ -329,15 +396,19 @@ export class GestureEngine {
 
   /** Reset all state machines */
   reset(): void {
-    this.stateMachines.clear()
+    for (let h = 0; h < 2; h++) {
+      for (let g = 0; g < ALL_GESTURE_TYPES.length; g++) {
+        this.stateMachineGrid[h][g].reset()
+      }
+    }
     this.previousOrientations.clear()
   }
 
   /** Update configuration */
   updateConfig(config: Partial<GestureConfig>): void {
     this.config = { ...this.config, ...config }
-    // Reset state machines since thresholds may have changed
-    this.stateMachines.clear()
+    // Recreate state machines since thresholds may have changed
+    this.stateMachineGrid = this._createStateMachineGrid()
   }
 
   /** Get current configuration */

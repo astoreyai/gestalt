@@ -47,12 +47,21 @@ describe('Gesture Dispatcher', () => {
       expect(action.params.x).toBe(0.5)
     })
 
-    it('should dispatch noop on pinch hold', () => {
+    it('should dispatch noop on pinch hold with no selection', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Pinch, GesturePhase.Hold),
         graphCtx
       )
       expect(action.type).toBe('noop')
+    })
+
+    it('should dispatch drag on pinch hold with selected node', () => {
+      const action = dispatchGesture(
+        makeGesture(GestureType.Pinch, GesturePhase.Hold),
+        { ...graphCtx, selectedNodeId: 'node-1' }
+      )
+      expect(action.type).toBe('drag')
+      expect(action.params.x).toBe(0.5)
     })
 
     it('should dispatch deselect on open palm onset', () => {

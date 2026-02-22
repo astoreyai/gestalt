@@ -3,18 +3,23 @@
  */
 
 import React, { useState } from 'react'
-import type { AppConfig, ThemeMode } from '@shared/protocol'
+import type { AppConfig, ThemeMode, CalibrationProfile } from '@shared/protocol'
 
 export interface SettingsProps {
   config: AppConfig
   onConfigChange: (config: Partial<AppConfig>) => void
   onClose: () => void
   onOpenCalibration?: () => void
+  profiles?: CalibrationProfile[]
+  activeProfileId?: string | null
+  onProfileChange?: (id: string) => void
+  onCreateProfile?: (profile: CalibrationProfile) => void
+  onDeleteProfile?: (id: string) => void
 }
 
 type SettingsTab = 'tracking' | 'gestures' | 'input' | 'bus' | 'visualization' | 'appearance'
 
-export function Settings({ config, onConfigChange, onClose, onOpenCalibration }: SettingsProps): React.ReactElement {
+export function Settings({ config, onConfigChange, onClose, onOpenCalibration, profiles, activeProfileId, onProfileChange, onCreateProfile, onDeleteProfile }: SettingsProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<SettingsTab>('tracking')
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
@@ -85,7 +90,16 @@ export function Settings({ config, onConfigChange, onClose, onOpenCalibration }:
 
       <div style={{ flex: 1, padding: 16, overflowY: 'auto' }}>
         {activeTab === 'tracking' && (
-          <TrackingSettings config={config} onChange={onConfigChange} onOpenCalibration={onOpenCalibration} />
+          <TrackingSettings
+            config={config}
+            onChange={onConfigChange}
+            onOpenCalibration={onOpenCalibration}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            onProfileChange={onProfileChange}
+            onCreateProfile={onCreateProfile}
+            onDeleteProfile={onDeleteProfile}
+          />
         )}
         {activeTab === 'gestures' && (
           <GestureSettings config={config} onChange={onConfigChange} />
@@ -151,11 +165,142 @@ function Toggle({ label, value, onChange }: {
   )
 }
 
-function TrackingSettings({ config, onChange, onOpenCalibration }: {
+function TrackingSettings({ config, onChange, onOpenCalibration, profiles, activeProfileId, onProfileChange, onCreateProfile, onDeleteProfile }: {
   config: AppConfig; onChange: (c: Partial<AppConfig>) => void; onOpenCalibration?: () => void
+  profiles?: CalibrationProfile[]
+  activeProfileId?: string | null
+  onProfileChange?: (id: string) => void
+  onCreateProfile?: (profile: CalibrationProfile) => void
+  onDeleteProfile?: (id: string) => void
 }): React.ReactElement {
+  const [creatingProfile, setCreatingProfile] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newSensitivity, setNewSensitivity] = useState(0.5)
+
+  const handleCreate = (): void => {
+    if (!newName.trim() || !onCreateProfile) return
+    const profile: CalibrationProfile = {
+      id: `profile-${Date.now()}`,
+      name: newName.trim(),
+      sensitivity: newSensitivity,
+      samples: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    onCreateProfile(profile)
+    onProfileChange?.(profile.id)
+    setNewName('')
+    setNewSensitivity(0.5)
+    setCreatingProfile(false)
+  }
+
+  const activeProfile = profiles?.find(p => p.id === activeProfileId)
+
   return (
     <>
+      {/* Profile management */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
+          Calibration Profile
+        </label>
+
+        {/* Profile dropdown with inline "+ New Profile" option */}
+        {profiles && profiles.length > 0 && onProfileChange && (
+          <select
+            value={creatingProfile ? '__new__' : (activeProfileId ?? '')}
+            onChange={e => {
+              if (e.target.value === '__new__') {
+                setCreatingProfile(true)
+              } else {
+                setCreatingProfile(false)
+                onProfileChange(e.target.value)
+              }
+            }}
+            style={{
+              width: '100%', padding: 8, background: 'var(--input-bg)', border: '1px solid var(--border)',
+              borderRadius: 6, color: 'var(--button-text)', fontSize: 14, marginBottom: 8
+            }}
+          >
+            {profiles.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name} (sensitivity: {p.sensitivity.toFixed(2)})
+              </option>
+            ))}
+            {onCreateProfile && (
+              <option value="__new__">+ New Profile</option>
+            )}
+          </select>
+        )}
+
+        {/* New profile form (shown when "+ New Profile" selected) */}
+        {creatingProfile && (
+          <div style={{ padding: 10, background: 'var(--input-bg)', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8 }}>
+            <input
+              type="text"
+              placeholder="Profile name"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+              autoFocus
+              style={{
+                width: '100%', padding: 6, background: 'var(--panel-bg)', border: '1px solid var(--border)',
+                borderRadius: 4, color: 'var(--button-text)', fontSize: 13, marginBottom: 8, boxSizing: 'border-box'
+              }}
+            />
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>
+                Sensitivity: {newSensitivity.toFixed(2)}
+              </label>
+              <input
+                type="range" min={0.1} max={1.0} step={0.05}
+                value={newSensitivity}
+                onChange={e => setNewSensitivity(parseFloat(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={handleCreate}
+                disabled={!newName.trim()}
+                style={{
+                  flex: 1, padding: '6px 10px', background: 'var(--accent)', border: 'none',
+                  borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12,
+                  opacity: newName.trim() ? 1 : 0.5
+                }}
+              >
+                Create
+              </button>
+              <button
+                onClick={() => {
+                  setCreatingProfile(false)
+                  setNewName('')
+                  setNewSensitivity(0.5)
+                }}
+                style={{
+                  flex: 1, padding: '6px 10px', background: 'transparent', border: '1px solid var(--border)',
+                  borderRadius: 4, color: 'var(--button-text)', cursor: 'pointer', fontSize: 12
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Delete button (only when not creating, and more than 1 profile exists) */}
+        {!creatingProfile && onDeleteProfile && activeProfile && profiles && profiles.length > 1 && (
+          <button
+            onClick={() => onDeleteProfile(activeProfile.id)}
+            style={{
+              width: '100%', padding: '6px 10px', background: 'transparent', border: '1px solid var(--border)',
+              borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12
+            }}
+          >
+            Delete "{activeProfile.name}"
+          </button>
+        )}
+      </div>
+
       <Toggle
         label="Enable Tracking"
         value={config.tracking.enabled}
@@ -175,12 +320,6 @@ function TrackingSettings({ config, onChange, onOpenCalibration }: {
       />
       {onOpenCalibration && (
         <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-          <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 8 }}>
-            Calibration Profiles
-          </label>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '0 0 8px 0', lineHeight: 1.4 }}>
-            Create, edit, or switch between calibration profiles for different users or hand sizes.
-          </p>
           <button
             onClick={onOpenCalibration}
             style={{
@@ -207,13 +346,13 @@ function GestureSettings({ config, onChange }: {
   config: AppConfig; onChange: (c: Partial<AppConfig>) => void
 }): React.ReactElement {
   // Responsiveness: 0 = cautious (high latency, few false positives), 1 = instant (low latency, more false positives)
-  // Maps to minHoldDuration [300..30] and cooldownDuration [400..50]
-  const responsiveness = 1 - ((config.gestures.minHoldDuration - 30) / 270)
+  // Maps to minHoldDuration [200..10] and cooldownDuration [250..30]
+  const responsiveness = 1 - ((config.gestures.minHoldDuration - 10) / 190)
   const clampedResponsiveness = Math.max(0, Math.min(1, responsiveness))
 
   const handleResponsiveness = (v: number): void => {
-    const holdMs = Math.round(300 - v * 270)   // 1.0 → 30ms, 0.0 → 300ms
-    const coolMs = Math.round(400 - v * 350)    // 1.0 → 50ms, 0.0 → 400ms
+    const holdMs = Math.round(200 - v * 190)   // 1.0 → 10ms, 0.0 → 200ms
+    const coolMs = Math.round(250 - v * 220)    // 1.0 → 30ms, 0.0 → 250ms
     onChange({ gestures: { ...config.gestures, minHoldDuration: holdMs, cooldownDuration: coolMs } })
   }
 
@@ -320,6 +459,25 @@ function BusSettings({ config, onChange }: {
 function VisualizationSettings({ config, onChange }: {
   config: AppConfig; onChange: (c: Partial<AppConfig>) => void
 }): React.ReactElement {
+  // Detect monitor refresh rate
+  const [monitorHz, setMonitorHz] = useState(60)
+  useState(() => {
+    let frames = 0
+    let start = 0
+    const measure = (ts: number): void => {
+      if (frames === 0) { start = ts }
+      frames++
+      if (frames < 30) {
+        requestAnimationFrame(measure)
+      } else {
+        const elapsed = ts - start
+        const hz = Math.round((frames - 1) / (elapsed / 1000))
+        setMonitorHz(hz)
+      }
+    }
+    requestAnimationFrame(measure)
+  })
+
   return (
     <>
       <Toggle
@@ -327,12 +485,14 @@ function VisualizationSettings({ config, onChange }: {
         value={config.visualization.lodEnabled}
         onChange={v => onChange({ visualization: { ...config.visualization, lodEnabled: v } })}
       />
-      <Slider
-        label="Max FPS"
-        value={config.visualization.maxFps}
-        min={15} max={144} step={1}
-        onChange={v => onChange({ visualization: { ...config.visualization, maxFps: v } })}
-      />
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
+          Render Rate
+        </label>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 4px 0' }}>
+          Monitor: {monitorHz} Hz — rendering synced to native refresh rate
+        </p>
+      </div>
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 13, color: 'var(--button-text)', display: 'block', marginBottom: 4 }}>
           Default View

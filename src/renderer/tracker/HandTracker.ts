@@ -49,10 +49,12 @@ export interface HandTrackerConfig {
    * Default: false
    */
   useWorker?: boolean
+  /** Specific camera device ID (from enumerateVideoDevices). If omitted, uses default camera. */
+  deviceId?: string
 }
 
 const DEFAULT_CONFIG: Required<
-  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker'>
+  Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId'>
 > = {
   numHands: 2,
   minHandDetectionConfidence: 0.7,
@@ -90,7 +92,7 @@ export class HandTracker {
   private _onFrame: FrameCallback | null = null
   private _onError: ErrorCallback | null = null
 
-  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker'>>
+  private _config: Required<Omit<HandTrackerConfig, 'smoothing' | 'videoConstraints' | 'useWorker' | 'deviceId'>>
   private _videoConstraints: MediaStreamConstraints['video']
 
   // ── Worker Mode State ─────────────────────────────────────────
@@ -101,6 +103,27 @@ export class HandTracker {
   private _workerReady = false
   /** Whether the worker failed to initialize and we fell back to direct mode. */
   private _workerFallback = false
+  /** Specific camera device ID (null = default camera). */
+  private _deviceId: string | undefined
+
+  // ── Object Pool (avoids per-frame allocations) ────────────────
+  /** Pre-allocated pool of Hand objects reused across frames. */
+  private _handsPool: Hand[] = HandTracker._createHandsPool(2)
+
+  /** Create a pool of Hand objects with pre-allocated landmark arrays. */
+  private static _createHandsPool(count: number): Hand[] {
+    const pool: Hand[] = new Array(count)
+    for (let i = 0; i < count; i++) {
+      const landmarks: Landmark[] = new Array(21)
+      const worldLandmarks: Landmark[] = new Array(21)
+      for (let j = 0; j < 21; j++) {
+        landmarks[j] = { x: 0, y: 0, z: 0 }
+        worldLandmarks[j] = { x: 0, y: 0, z: 0 }
+      }
+      pool[i] = { handedness: 'right', landmarks, worldLandmarks, score: 0 }
+    }
+    return pool
+  }
 
   constructor(config: HandTrackerConfig = {}) {
     this._config = {
@@ -113,8 +136,27 @@ export class HandTracker {
         config.minTrackingConfidence ?? DEFAULT_CONFIG.minTrackingConfidence
     }
     this._smoothingConfig = config.smoothing !== undefined ? config.smoothing : {}
-    this._videoConstraints = config.videoConstraints ?? { width: 640, height: 480, frameRate: { ideal: 60 } }
+    this._videoConstraints = config.videoConstraints ?? { width: 1280, height: 720, frameRate: { ideal: 120 } }
     this._useWorker = config.useWorker ?? false
+    this._deviceId = config.deviceId
+  }
+
+  /**
+   * Enumerate available video input devices (cameras).
+   * Requests a temporary getUserMedia stream to trigger browser permission
+   * prompts (required before device labels are populated).
+   */
+  static async enumerateVideoDevices(): Promise<MediaDeviceInfo[]> {
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+      for (const track of tempStream.getTracks()) {
+        track.stop()
+      }
+    } catch {
+      // Permission denied or no cameras — fall through to enumerate anyway
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return devices.filter((d) => d.kind === 'videoinput')
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -409,8 +451,16 @@ export class HandTracker {
 
   private async _initializeCamera(): Promise<void> {
     try {
+      // Merge deviceId constraint if a specific camera was requested
+      const videoConstraints: MediaStreamConstraints['video'] = this._deviceId
+        ? {
+            ...(typeof this._videoConstraints === 'object' ? this._videoConstraints : {}),
+            deviceId: { exact: this._deviceId }
+          }
+        : this._videoConstraints
+
       this._stream = await navigator.mediaDevices.getUserMedia({
-        video: this._videoConstraints,
+        video: videoConstraints,
         audio: false
       })
 
@@ -477,11 +527,24 @@ export class HandTracker {
   }
 
   private _buildFrame(result: HandLandmarkerResult, timestampMs: number): LandmarkFrame {
-    const hands: Hand[] = []
     const numDetected = result.landmarks.length
     const videoWidth = this._video?.videoWidth ?? 640
     const videoHeight = this._video?.videoHeight ?? 480
     const timestampSec = timestampMs / 1000
+
+    // Grow the pool if more hands detected than pool size (rare edge case)
+    while (this._handsPool.length < numDetected) {
+      const landmarks: Landmark[] = new Array(21)
+      const worldLandmarks: Landmark[] = new Array(21)
+      for (let j = 0; j < 21; j++) {
+        landmarks[j] = { x: 0, y: 0, z: 0 }
+        worldLandmarks[j] = { x: 0, y: 0, z: 0 }
+      }
+      this._handsPool.push({ handedness: 'right', landmarks, worldLandmarks, score: 0 })
+    }
+
+    // Build a slice referencing pooled Hand objects
+    const hands: Hand[] = new Array(numDetected)
 
     for (let i = 0; i < numDetected; i++) {
       const rawLandmarks: NormalizedLandmark[] = result.landmarks[i]
@@ -489,6 +552,11 @@ export class HandTracker {
       const handedness = this._parseHandedness(result.handedness[i])
       const score = result.handedness[i]?.[0]?.score ?? 0
 
+      const pooledHand = this._handsPool[i]
+      pooledHand.handedness = handedness
+      pooledHand.score = score
+
+      // Normalize landmarks
       let landmarks: Landmark[] = normalizeLandmarks(rawLandmarks, videoWidth, videoHeight)
 
       // Apply smoothing if enabled
@@ -497,22 +565,43 @@ export class HandTracker {
         landmarks = smoother.smooth(landmarks, timestampSec)
       }
 
-      // P2-47: Build worldLandmarks array directly without intermediate map.
-      // rawWorldLandmarks already have {x, y, z} shape; just copy the values.
-      const worldLandmarks: Landmark[] = new Array(rawWorldLandmarks.length)
-      for (let j = 0; j < rawWorldLandmarks.length; j++) {
-        const wl = rawWorldLandmarks[j]
-        worldLandmarks[j] = { x: wl.x, y: wl.y, z: wl.z }
+      // Copy smoothed/normalized landmarks into the pooled landmark array in-place
+      const pooledLandmarks = pooledHand.landmarks
+      for (let j = 0; j < 21; j++) {
+        const src = landmarks[j]
+        const dst = pooledLandmarks[j]
+        dst.x = src.x
+        dst.y = src.y
+        dst.z = src.z
       }
 
-      // P2-47: Use smoothed landmarks directly -- they are already in the right
-      // {x, y, z} format from smooth(), so no need to re-map them.
-      hands.push({
-        handedness,
-        landmarks,
-        worldLandmarks,
-        score
-      })
+      // Copy world landmarks in-place into the pooled array
+      const pooledWorldLandmarks = pooledHand.worldLandmarks
+      for (let j = 0; j < rawWorldLandmarks.length; j++) {
+        const wl = rawWorldLandmarks[j]
+        const dst = pooledWorldLandmarks[j]
+        dst.x = wl.x
+        dst.y = wl.y
+        dst.z = wl.z
+      }
+
+      // Snapshot the pooled data so consumers don't get aliased references
+      const snapshotLandmarks: Landmark[] = new Array(21)
+      const snapshotWorldLandmarks: Landmark[] = new Array(21)
+      for (let j = 0; j < 21; j++) {
+        const pl = pooledLandmarks[j]
+        snapshotLandmarks[j] = { x: pl.x, y: pl.y, z: pl.z }
+      }
+      for (let j = 0; j < pooledWorldLandmarks.length; j++) {
+        const pw = pooledWorldLandmarks[j]
+        snapshotWorldLandmarks[j] = { x: pw.x, y: pw.y, z: pw.z }
+      }
+      hands[i] = {
+        handedness: pooledHand.handedness,
+        landmarks: snapshotLandmarks,
+        worldLandmarks: snapshotWorldLandmarks,
+        score: pooledHand.score
+      }
     }
 
     // Evict smoothers for hands that have disappeared

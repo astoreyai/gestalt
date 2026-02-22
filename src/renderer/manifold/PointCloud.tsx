@@ -13,7 +13,7 @@ import {
   Points,
   Raycaster,
   BufferAttribute,
-  AdditiveBlending
+  BufferGeometry
 } from 'three'
 import type { EmbeddingData, EmbeddingPoint } from '@shared/protocol'
 import { CLUSTER_COLORS } from './types'
@@ -64,7 +64,13 @@ export function PointCloud({
   pointSize = 4.0
 }: PointCloudProps): React.ReactElement | null {
   const pointsRef = useRef<Points>(null)
-  const raycasterRef = useRef(new Raycaster())
+  const raycasterRef = useRef<Raycaster | null>(null)
+  // Lazy-init raycaster with pre-configured params to avoid per-callback re-setting
+  if (raycasterRef.current === null) {
+    const rc = new Raycaster()
+    rc.params.Points = { threshold: 0.5 }
+    raycasterRef.current = rc
+  }
   const { camera, pointer } = useThree()
 
   // Track which buffer indices are currently / previously hovered so the
@@ -196,10 +202,9 @@ export function PointCloud({
   // Raycasting for hover and click
   const handlePointerMove = useCallback(
     (_event: ThreeEvent<PointerEvent>) => {
-      if (!pointsRef.current || !onPointHover) return
+      if (!pointsRef.current || !onPointHover || !raycasterRef.current) return
 
       raycasterRef.current.setFromCamera(pointer, camera)
-      raycasterRef.current.params.Points = { threshold: 0.5 }
 
       const intersects = raycasterRef.current.intersectObject(pointsRef.current)
       if (intersects.length > 0 && intersects[0].index !== undefined) {
@@ -216,10 +221,9 @@ export function PointCloud({
 
   const handleClick = useCallback(
     (_event: ThreeEvent<MouseEvent>) => {
-      if (!pointsRef.current || !onPointClick) return
+      if (!pointsRef.current || !onPointClick || !raycasterRef.current) return
 
       raycasterRef.current.setFromCamera(pointer, camera)
-      raycasterRef.current.params.Points = { threshold: 0.5 }
 
       const intersects = raycasterRef.current.intersectObject(pointsRef.current)
       if (intersects.length > 0 && intersects[0].index !== undefined) {
@@ -232,42 +236,31 @@ export function PointCloud({
     [camera, pointer, onPointClick, pointIndex]
   )
 
+  // Build geometry imperatively so buffer attributes are always valid
+  const geometry = useMemo(() => {
+    const geom = new BufferGeometry()
+    geom.setAttribute('position', new BufferAttribute(positions, 3))
+    geom.setAttribute('color', new BufferAttribute(colors, 3))
+    geom.setAttribute('size', new BufferAttribute(sizes, 1))
+    return geom
+  }, [positions, colors, sizes])
+
   if (data.points.length === 0) return null
 
   return (
     <points
       ref={pointsRef}
+      geometry={geometry}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
     >
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          array={positions}
-          count={data.points.length}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-color"
-          array={colors}
-          count={data.points.length}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-size"
-          array={sizes}
-          count={data.points.length}
-          itemSize={1}
-        />
-      </bufferGeometry>
       <pointsMaterial
         vertexColors
         size={pointSize}
-        sizeAttenuation
+        sizeAttenuation={false}
         transparent
-        opacity={0.85}
+        opacity={0.9}
         depthWrite={false}
-        blending={AdditiveBlending}
       />
     </points>
   )

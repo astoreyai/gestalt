@@ -34,7 +34,7 @@ export class VirtualMouse {
   /** Initialize the virtual mouse device */
   async init(): Promise<void> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+       
       const addon = globalThis.require?.('../../native/build/Release/tracking_input.node')
       if (addon?.mouse) {
         this.native = addon.mouse as NativeMouseAPI

@@ -76,14 +76,16 @@ describe('Protocol Types', () => {
       expect(GestureType.OpenPalm).toBe('open_palm')
       expect(GestureType.Twist).toBe('twist')
       expect(GestureType.TwoHandPinch).toBe('two_hand_pinch')
+      expect(GestureType.TwoHandRotate).toBe('two_hand_rotate')
+      expect(GestureType.TwoHandPush).toBe('two_hand_push')
       expect(GestureType.FlatDrag).toBe('flat_drag')
       expect(GestureType.Fist).toBe('fist')
       expect(GestureType.LShape).toBe('l_shape')
     })
 
-    it('should have 8 gesture types', () => {
+    it('should have 10 gesture types', () => {
       const values = Object.values(GestureType)
-      expect(values.length).toBe(8)
+      expect(values.length).toBe(10)
     })
   })
 

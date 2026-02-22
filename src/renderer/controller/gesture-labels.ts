@@ -12,6 +12,8 @@ const GESTURE_DISPLAY_NAMES: Record<GestureType, string> = {
   [GestureType.OpenPalm]: 'Open Palm',
   [GestureType.Twist]: 'Twist',
   [GestureType.TwoHandPinch]: 'Two-Hand Pinch',
+  [GestureType.TwoHandRotate]: 'Two-Hand Rotate',
+  [GestureType.TwoHandPush]: 'Two-Hand Push',
   [GestureType.FlatDrag]: 'Flat Drag',
   [GestureType.Fist]: 'Fist',
   [GestureType.LShape]: 'L-Shape'

@@ -27,7 +27,7 @@ export class VirtualKeyboard {
   /** Initialize the virtual keyboard device */
   async init(): Promise<void> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+       
       const addon = globalThis.require?.('../../native/build/Release/tracking_input.node')
       if (addon?.keyboard) {
         this.native = addon.keyboard as NativeKeyboardAPI

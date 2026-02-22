@@ -51,6 +51,14 @@ export interface GestureConfig {
   twistMinRotation: number
   /** Sensitivity 0-1, higher = more sensitive (easier to trigger gestures) */
   sensitivity?: number
+  /** Grace period (ms) for aligning two-hand onset timing */
+  twoHandOnsetGrace: number
+  /** Normalized z-delta threshold for dolly detection */
+  dollyZThreshold: number
+  /** Multiplier for dolly camera movement speed */
+  dollySpeed: number
+  /** Multiplier for orbit camera movement speed */
+  orbitSpeed: number
 }
 
 /** Sensible default gesture configuration */
@@ -58,9 +66,13 @@ export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   pinchThreshold: 0.1,
   curlThreshold: 0.35,
   extensionThreshold: 0.55,
-  minOnsetFrames: 2,
-  minHoldDuration: 80,
-  cooldownDuration: 120,
+  minOnsetFrames: 1,
+  minHoldDuration: 40,
+  cooldownDuration: 80,
   minConfidence: 0.5,
-  twistMinRotation: 0.3
+  twistMinRotation: 0.3,
+  twoHandOnsetGrace: 100,
+  dollyZThreshold: 0.02,
+  dollySpeed: 1.0,
+  orbitSpeed: 1.0
 }
