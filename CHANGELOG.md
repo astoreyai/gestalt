@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-22
+
+### Added
+
+- **Adversarial audit v3 remediation** — 7-sprint deep-dive addressing ~195 findings across all modules
+- **Force layout convergence**: MAX_ITERATIONS (300) cap + stall detection (alpha change < 0.001 for 5 ticks) prevents infinite loops
+- **Edges dirty-flag optimization**: positionVersion integer counter replaces Map reference identity (which always failed)
+- **Position validation**: `z.number().finite()` rejects NaN/Infinity in graph/embedding positions (prevents Three.js crashes)
+- **Duplicate node ID detection**: `superRefine()` on graph schema catches and reports duplicates
+- **Expanded overlay gestures**: L-Shape→middle-click, Twist→scroll, OpenPalm→cancel, TwoHandPinch→Ctrl+scroll zoom
+- **Double-init guard**: Mouse/keyboard native addon prevents FD leak on re-initialization
+- **Cursor sync on overlay enter**: Queries actual cursor position via `screen.getCursorScreenPoint()` to avoid first-frame jump
+- **Stub mode feedback**: IPC notification to renderer when native addon fails (shows "Native input unavailable" banner)
+- **Bus hardening**: Global rate limit (5000 msg/s), max connections (50), capabilities bound (100 per client)
+- **TOCTOU fix**: `fs.realpath()` in SAMPLE_LOAD/FILE_LOAD prevents symlink race between path check and file read
+- **Persistence atomic writes**: Unique temp paths (`pid.timestamp.tmp`) prevent concurrent write corruption
+- **uinput FD leak fix**: Native C++ closes existing fd before re-init in CreateMouse/CreateKeyboard
+- **Z-index normalization**: Full token scale (base→dropdown→overlay→modal→toast→guide→onboarding)
+- **WCAG accessibility**: ARIA labels on all Settings controls, `role="radio"` for themes, `prefers-reduced-motion` in GestureOverlay, `aria-live="polite"` for gesture announcements
+- **Settings port validation**: Range 1024-65535, integer-only, inline error with red border
+- **Design token adoption**: 6 components migrated from hardcoded values to COLORS/FONT_SIZE/SPACING tokens
+- **HandChordOverlay positioning**: Dynamic calc() positioning instead of hardcoded pixel offset
+- **5 regression test suites**: Force layout convergence, Edges dirty-flag, security validators, gesture accuracy, overlay integration (62 new tests)
+
+### Fixed
+
+- **Fist/Pinch classifier collision**: Thumb curl threshold lowered to 0.10 (MediaPipe reports ~0.12 for fully curled), pinch exclusion tightened from 1.2× to 1.0×
+- **Cooldown re-trigger**: Expired cooldown with gesture still detected transitions directly to Onset (enables rapid repeated gestures)
+- **Point confidence**: Palm-relative scaling (`curlDiff / (0.15 * palmScale)`) instead of absolute threshold
+- **Settings panel opening on gestures**: `toggle_info` action changed from opening Settings modal to no-op
+- **Overlay white screen**: Added useEffect to set `document.body.style.background = 'transparent'` in overlay mode (CSS variable was overriding Electron's transparent background)
+- **L-Shape + Fist dispatching**: Added missing cases in graph and manifold dispatchers
+- **Two-hand action handlers**: fold, unfold, measure, scale_node, roll now handled in App.tsx
+
+### Removed
+
+- **Dead code**: `mappings.ts` (176 lines), `knn-classifier.ts` (195 lines), and test file (438 lines) — never imported at runtime
+- **Dead IPC channels**: TRACKING_STATUS, PROGRAM_COMMAND, BUS_STATUS, BUS_SEND, APP_READY, APP_QUIT
+
+### Testing
+
+- 1461 passing tests across 80 files (up from 1444)
+- 7-sprint adversarial audit remediation covering all modules
+
 ## [0.4.0] - 2026-02-22
 
 ### Added

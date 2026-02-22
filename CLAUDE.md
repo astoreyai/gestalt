@@ -14,7 +14,7 @@ Electron desktop app for navigating 3D knowledge graphs and embedding manifolds 
 ```bash
 npm run dev              # Launch dev mode (electron-vite dev)
 npm run build            # Production build
-npm run test             # Run vitest (1357 tests, 62 files)
+npm run test             # Run vitest (1461 tests, 80 files)
 npm run test:watch       # Vitest watch mode
 npm run typecheck        # tsc --noEmit
 npm run lint             # ESLint 9 (flat config)
@@ -85,7 +85,7 @@ The main process bundles `zod`, `ws`, `d3-force-3d`, and `electron-updater` dire
 
 ## Performance
 
-- **Gesture throughput**: ~950K frames/sec (31,500x headroom at 30fps input)
+- **Gesture throughput**: ~778K frames/sec (25,930x headroom at 30fps input)
 - **Pipeline optimizations**: Cached effectiveConfig, squared-distance comparisons, pre-allocated buffers, INV_PI constants, palm-scaled thresholds
 - **Tracking accuracy**: Per-joint One-Euro filter tuning (4 tiers: anchor/MCP/PIP/TIP), z-axis median pre-filter, orientation-adaptive curl blend weights, thumb opposition measurement, pinch approach-vector gating
 - **Rendering optimizations**: Dirty-flag GPU uploads (Nodes/Edges skip when unchanged), ForceGraph setPositions throttled to ~30fps, LOD geometry swap, InstancedMesh batching
@@ -128,7 +128,7 @@ Adjustable via Settings > Gestures > Responsiveness slider.
 
 ## Testing
 
-- 1357 tests, 62 test files, all passing
+- 1461 tests, 80 test files, all passing
 - Test framework: Vitest 3 with happy-dom
 - Synthetic hand data in `src/renderer/gestures/__tests__/classifier.test.ts` — fingers must be spread far enough that thumb tip and index tip distance > pinchThreshold (0.10)
 - GestureEngine tests use `{ minOnsetFrames: 1, minHoldDuration: 0 }` to avoid timing sensitivity
