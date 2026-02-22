@@ -450,13 +450,15 @@ describe('detectPinch', () => {
     expect(result.distance).toBeGreaterThan(DEFAULT_GESTURE_CONFIG.pinchThreshold)
   })
 
-  it('should return the distance between thumb and index tips', () => {
+  it('should return the palm-normalized distance between thumb and index tips', () => {
     const hand = createPinchHand()
     const result = detectPinch(hand)
-    const expected = distance(
+    const rawDist = distance(
       hand.landmarks[LANDMARK.THUMB_TIP],
       hand.landmarks[LANDMARK.INDEX_TIP]
     )
+    const palmDist = distance(hand.landmarks[LANDMARK.WRIST], hand.landmarks[LANDMARK.MIDDLE_MCP])
+    const expected = rawDist / palmDist
     expect(result.distance).toBeCloseTo(expected, 10)
   })
 

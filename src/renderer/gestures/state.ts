@@ -37,11 +37,15 @@ export class GestureStateMachine {
   private onsetStartTime = 0
   private holdStartTime = 0
   private releaseTime = 0
+  /** Counts consecutive non-detected frames before confirming release (debounce) */
+  private releaseDebounceCount = 0
 
   constructor(
     private readonly minOnsetFrames: number = DEFAULT_GESTURE_CONFIG.minOnsetFrames,
     private readonly minHoldDuration: number = DEFAULT_GESTURE_CONFIG.minHoldDuration,
-    private readonly cooldownDuration: number = DEFAULT_GESTURE_CONFIG.cooldownDuration
+    private readonly cooldownDuration: number = DEFAULT_GESTURE_CONFIG.cooldownDuration,
+    /** Minimum consecutive non-detected frames before release fires. Default: 1 */
+    private readonly minReleaseFrames: number = 1
   ) {}
 
   /** Get the current internal state */
@@ -56,6 +60,7 @@ export class GestureStateMachine {
     this.onsetStartTime = 0
     this.holdStartTime = 0
     this.releaseTime = 0
+    this.releaseDebounceCount = 0
   }
 
   /**
@@ -69,10 +74,18 @@ export class GestureStateMachine {
       // Hold is the most frequent state (continuous gestures) — check first
       case GestureState.Hold:
         if (!detected) {
-          this.state = GestureState.Release
-          this.releaseTime = timestamp
-          return GesturePhase.Release
+          this.releaseDebounceCount++
+          // Require minReleaseFrames consecutive non-detections before releasing.
+          // Absorbs single-frame detection dropouts from noisy MediaPipe output.
+          if (this.releaseDebounceCount >= this.minReleaseFrames) {
+            this.state = GestureState.Release
+            this.releaseTime = timestamp
+            this.releaseDebounceCount = 0
+            return GesturePhase.Release
+          }
+          return GesturePhase.Hold
         }
+        this.releaseDebounceCount = 0
         return GesturePhase.Hold
 
       case GestureState.Idle:

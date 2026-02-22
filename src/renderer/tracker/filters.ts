@@ -58,7 +58,7 @@ export interface OneEuroFilterConfig {
 }
 
 const DEFAULT_MIN_CUTOFF = 1.0
-const DEFAULT_BETA = 0.0
+const DEFAULT_BETA = 0.03
 const DEFAULT_D_CUTOFF = 1.0
 
 export class OneEuroFilter {

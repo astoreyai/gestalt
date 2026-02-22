@@ -176,7 +176,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
         }
       }
 
-      if (closestId && closestDist < 8) {
+      // Scale hover threshold by camera distance for consistent interaction at all zoom levels
+      const hoverThreshold = Math.max(2, camera.position.length() * 0.15)
+      if (closestId && closestDist < hoverThreshold) {
         handleNodeHover(closestId)
       } else {
         handleNodeHover(null)
@@ -205,7 +207,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       const handVec = dragHandVecRef.current
       const ndc = dragNdcRef.current
       let updated: Map<string, NodePosition> | null = null
-      const GRAB_THRESHOLD = 8
+      // Scale grab threshold by camera distance — easier to grab when zoomed out
+      const cameraDist = camera.position.length()
+      const GRAB_THRESHOLD = Math.max(2, cameraDist * 0.15)
 
       for (const dp of dragPositions) {
         const pos = updated ?? positionsRef.current
