@@ -121,10 +121,15 @@ export function fingerCurl(landmarks: Landmark[], finger: FingerName): number {
 
   // Distance-based curl: how close is the tip to the MCP relative to finger length?
   // Extended finger: tip far from MCP. Curled: tip close to MCP.
-  const tipToMcp = distance(tip, mcp)
-  // Approximate max finger length as sum of bone segments
-  const boneLen = distance(mcp, pip) + distance(pip, dip) + distance(dip, tip)
-  const distRatio = boneLen > 0.001 ? tipToMcp / boneLen : 1
+  // Use squared distances to avoid 4x sqrt per finger. Only sqrt the ratio.
+  const tipToMcpSq = distanceSquared(tip, mcp)
+  // Approximate max finger length as sum of bone segments (squared individually, then sqrt once)
+  const boneSq1 = distanceSquared(mcp, pip)
+  const boneSq2 = distanceSquared(pip, dip)
+  const boneSq3 = distanceSquared(dip, tip)
+  const boneLen = Math.sqrt(boneSq1) + Math.sqrt(boneSq2) + Math.sqrt(boneSq3)
+  const boneLenSq = boneLen * boneLen
+  const distRatio = boneLenSq > 0.000001 ? Math.sqrt(tipToMcpSq / boneLenSq) : 1
   // distRatio ~1 when straight, ~0.3 when curled. Map to curl value.
   const distCurl = Math.max(0, Math.min(1, 1 - distRatio))
 

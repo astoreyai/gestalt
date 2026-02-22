@@ -461,22 +461,24 @@ function VisualizationSettings({ config, onChange }: {
 }): React.ReactElement {
   // Detect monitor refresh rate
   const [monitorHz, setMonitorHz] = useState(60)
-  useState(() => {
+  React.useEffect(() => {
     let frames = 0
     let start = 0
+    let rafId = 0
     const measure = (ts: number): void => {
       if (frames === 0) { start = ts }
       frames++
       if (frames < 30) {
-        requestAnimationFrame(measure)
+        rafId = requestAnimationFrame(measure)
       } else {
         const elapsed = ts - start
         const hz = Math.round((frames - 1) / (elapsed / 1000))
         setMonitorHz(hz)
       }
     }
-    requestAnimationFrame(measure)
-  })
+    rafId = requestAnimationFrame(measure)
+    return () => cancelAnimationFrame(rafId)
+  }, [])
 
   return (
     <>

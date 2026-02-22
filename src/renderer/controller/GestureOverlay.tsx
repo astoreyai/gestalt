@@ -51,12 +51,19 @@ export function GestureOverlay({
   height
 }: GestureOverlayProps): React.ReactElement | null {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  /** Track last drawn frame ID to skip redundant redraws */
+  const lastDrawnFrameRef = useRef<number>(-1)
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // Skip redraw if same frame (frameId hasn't changed)
+    const frameId = landmarkFrame?.frameId ?? -1
+    if (frameId === lastDrawnFrameRef.current && frameId !== -1) return
+    lastDrawnFrameRef.current = frameId
 
     ctx.clearRect(0, 0, width, height)
 

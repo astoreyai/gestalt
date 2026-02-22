@@ -62,11 +62,24 @@ function createPositionExtractor() {
       }
       initialised = true
     } else {
+      // Prune stale entries from previous graph data
+      if (map.size !== nodes.length) {
+        const currentIds = new Set<string>()
+        for (const n of nodes) currentIds.add(n.id)
+        for (const id of map.keys()) {
+          if (!currentIds.has(id)) map.delete(id)
+        }
+      }
       for (const n of nodes) {
-        const pos = map.get(n.id)!
-        pos.x = n.x ?? 0
-        pos.y = n.y ?? 0
-        pos.z = n.z ?? 0
+        const pos = map.get(n.id)
+        if (pos) {
+          pos.x = n.x ?? 0
+          pos.y = n.y ?? 0
+          pos.z = n.z ?? 0
+        } else {
+          // New node added mid-simulation
+          map.set(n.id, { x: n.x ?? 0, y: n.y ?? 0, z: n.z ?? 0 })
+        }
       }
     }
     return map

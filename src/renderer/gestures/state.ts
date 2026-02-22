@@ -272,6 +272,9 @@ export class GestureEngine {
   /** Tracks previous classification per hand for hysteresis */
   private _lastClassification: [GestureType | null, GestureType | null] = [null, null]
 
+  /** Tracks last pinch onset timestamp per hand for twoHandOnsetGrace */
+  private _pinchOnsetTime: [number, number] = [0, 0]
+
   /** Pre-allocated position objects for handCenter to avoid per-call allocation */
   private readonly _handCenterLeft = { x: 0, y: 0, z: 0 }
   private readonly _handCenterRight = { x: 0, y: 0, z: 0 }
@@ -386,7 +389,24 @@ export class GestureEngine {
         // Reuse cached pinch results from the per-hand loop above
         const leftPinch = pinchResults.get('left')!
         const rightPinch = pinchResults.get('right')!
-        const twoHandPinchDetected = leftPinch.detected && rightPinch.detected
+
+        // Track per-hand pinch onset timestamps
+        if (leftPinch.detected) { if (this._pinchOnsetTime[0] === 0) this._pinchOnsetTime[0] = timestamp }
+        else { this._pinchOnsetTime[0] = 0 }
+        if (rightPinch.detected) { if (this._pinchOnsetTime[1] === 0) this._pinchOnsetTime[1] = timestamp }
+        else { this._pinchOnsetTime[1] = 0 }
+
+        // Two-hand onset grace: both hands count as pinching if the second hand
+        // starts pinching within `twoHandOnsetGrace` ms of the first
+        const grace = effectiveConfig.twoHandOnsetGrace
+        let twoHandPinchDetected = leftPinch.detected && rightPinch.detected
+        if (!twoHandPinchDetected && grace > 0) {
+          const lt = this._pinchOnsetTime[0]
+          const rt = this._pinchOnsetTime[1]
+          if (lt > 0 && rt > 0 && Math.abs(lt - rt) <= grace) {
+            twoHandPinchDetected = true
+          }
+        }
 
         const sm = this.getStateMachine(GestureType.TwoHandPinch, 'right')
         const phase = sm.update(twoHandPinchDetected, timestamp)
@@ -466,7 +486,9 @@ export class GestureEngine {
       pinchThreshold: this.config.pinchThreshold * scale,
       extensionThreshold: this.config.extensionThreshold * (2 - scale),
       curlThreshold: this.config.curlThreshold * (2 - scale),
-      twistMinRotation: this.config.twistMinRotation * (2 - scale)
+      twistMinRotation: this.config.twistMinRotation * (2 - scale),
+      // Scale hysteresis proportionally so high-sensitivity doesn't make gestures overly sticky
+      hysteresisMargin: this.config.hysteresisMargin * scale
     }
   }
 }

@@ -7,6 +7,18 @@ import { WebSocket } from 'ws'
 import type { BusGestureMessage } from '@shared/bus-protocol'
 import { ProgramRegistry } from './registry'
 
+/** Static gesture→capability mapping (hoisted from shouldReceive to avoid per-call allocation) */
+const GESTURE_TO_CAPABILITY: Readonly<Record<string, readonly string[]>> = {
+  'pinch': ['select', 'click'],
+  'twist': ['rotate'],
+  'two_hand_pinch': ['zoom', 'scale'],
+  'flat_drag': ['pan', 'move'],
+  'point': ['cursor', 'hover'],
+  'open_palm': ['deselect', 'release'],
+  'fist': ['cancel', 'stop'],
+  'l_shape': ['menu', 'shortcut']
+}
+
 export class GestureFanout {
   private registry: ProgramRegistry
 
@@ -53,18 +65,7 @@ export class GestureFanout {
     if (capabilities.includes(gestureName)) return true // Direct match
 
     // Capability mapping: 'rotate' matches 'twist', 'select' matches 'pinch', etc.
-    const gestureToCapability: Record<string, string[]> = {
-      'pinch': ['select', 'click'],
-      'twist': ['rotate'],
-      'two_hand_pinch': ['zoom', 'scale'],
-      'flat_drag': ['pan', 'move'],
-      'point': ['cursor', 'hover'],
-      'open_palm': ['deselect', 'release'],
-      'fist': ['cancel', 'stop'],
-      'l_shape': ['menu', 'shortcut']
-    }
-
-    const mappedCapabilities = gestureToCapability[gestureName] ?? []
+    const mappedCapabilities = GESTURE_TO_CAPABILITY[gestureName] ?? []
     return mappedCapabilities.some(cap => capabilities.includes(cap))
   }
 

@@ -117,14 +117,32 @@ export const useGestureStore = create<GestureSliceState>((set) => ({
 
 // ─── Config State ─────────────────────────────────────────
 
+// Debounced IPC persist — batches rapid slider changes into a single write
+let _configPersistTimer: ReturnType<typeof setTimeout> | null = null
+let _pendingConfigPartial: Partial<AppConfig> | null = null
+
+function debouncedPersistConfig(partial: Partial<AppConfig>): void {
+  _pendingConfigPartial = _pendingConfigPartial
+    ? { ..._pendingConfigPartial, ...partial }
+    : { ...partial }
+  if (_configPersistTimer) clearTimeout(_configPersistTimer)
+  _configPersistTimer = setTimeout(() => {
+    if (_pendingConfigPartial) {
+      window.api?.setConfig(_pendingConfigPartial).catch(() => {})
+      _pendingConfigPartial = null
+    }
+    _configPersistTimer = null
+  }, 300)
+}
+
 export const useConfigStore = create<ConfigState>((set) => ({
   config: DEFAULT_CONFIG,
   updateConfig: (partial) => {
     set((state) => ({
       config: { ...state.config, ...partial }
     }))
-    // Auto-persist to disk via IPC (fire-and-forget)
-    window.api?.setConfig(partial).catch(() => {})
+    // Auto-persist to disk via debounced IPC (batches rapid slider changes)
+    debouncedPersistConfig(partial)
   },
   calibrated: false,
   setCalibrated: (calibrated) => set({ calibrated }),
