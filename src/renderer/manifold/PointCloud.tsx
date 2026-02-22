@@ -264,11 +264,12 @@ export function PointCloud({
     >
       <pointsMaterial
         vertexColors
-        size={pointSize}
-        sizeAttenuation={false}
+        size={pointSize * 3}
+        sizeAttenuation={true}
         transparent
         opacity={0.9}
-        depthWrite={false}
+        depthWrite={true}
+        alphaTest={0.5}
       />
     </points>
   )

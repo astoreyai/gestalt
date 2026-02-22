@@ -13,6 +13,8 @@ import { deepMerge } from './deep-merge'
 import { initUpdater } from './updater'
 import { createOverlayManager } from './overlay'
 import type { OverlayManager } from './overlay'
+import { InputIpcHandler } from './input/ipc'
+import { SystemTray } from './tray'
 
 // ─── Global error handlers ──────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
@@ -28,11 +30,17 @@ if (app.commandLine) {
   app.commandLine.appendSwitch('use-angle', 'gl')
   app.commandLine.appendSwitch('use-gl', 'angle')
   app.commandLine.appendSwitch('disable-vulkan')
+  // Sprint 6b: Enable Ozone platform auto-detection for native Wayland support
+  if (process.platform === 'linux') {
+    app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+  }
 }
 
 let mainWindow: BrowserWindow | null = null
 let busServer: BusServer | null = null
 let overlayManager: OverlayManager | null = null
+let inputHandler: InputIpcHandler | null = null
+let systemTray: SystemTray | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -425,6 +433,39 @@ app.whenReady().then(() => {
   overlayManager = createOverlayManager()
   overlayManager.init(mainWindow!, config.overlay?.hotkey ?? 'Super+G')
 
+  // Initialize input IPC handler (mouse, keyboard, macros for overlay mode)
+  inputHandler = new InputIpcHandler()
+  inputHandler.init().catch(err => {
+    console.error('[Main] Input handler init failed:', err instanceof Error ? err.message : String(err))
+  })
+
+  // Initialize system tray
+  systemTray = new SystemTray()
+  systemTray.init({
+    onToggleTracking: (enabled) => {
+      mainWindow?.webContents.send('tracking:toggle', enabled)
+    },
+    onToggleBus: (enabled) => {
+      if (enabled && !busServer) {
+        busServer = new BusServer({ port: config.bus.port })
+        busServer.start().catch(() => {})
+      } else if (!enabled && busServer) {
+        busServer.stop().catch(() => {})
+        busServer = null
+      }
+    },
+    onToggleOverlay: () => {
+      overlayManager?.toggle()
+    },
+    onShowWindow: () => {
+      mainWindow?.show()
+      mainWindow?.focus()
+    },
+    onQuit: () => {
+      app.quit()
+    }
+  })
+
   // Start the bus server if enabled
   if (config.bus.enabled) {
     busServer = new BusServer({ port: config.bus.port })
@@ -441,12 +482,20 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  if (inputHandler) {
+    inputHandler.destroy()
+    inputHandler = null
+  }
   if (overlayManager) {
     overlayManager.destroy()
     overlayManager = null
   }
   if (busServer) {
     busServer.stop().catch(() => {})
+  }
+  if (systemTray) {
+    systemTray.destroy()
+    systemTray = null
   }
 })
 

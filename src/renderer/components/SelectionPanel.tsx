@@ -20,11 +20,11 @@ const buttonStyle: React.CSSProperties = {
   fontSize: 12
 }
 
-/** Shared panel style for the selection info container */
+/** Shared panel style for the selection info container — offset left to avoid ClusterLegend */
 const panelStyle: React.CSSProperties = {
   position: 'absolute',
   bottom: 16,
-  left: 16,
+  left: 220,
   padding: 16,
   background: 'var(--panel-bg)',
   borderRadius: 12,

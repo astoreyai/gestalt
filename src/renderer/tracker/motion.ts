@@ -6,6 +6,7 @@
 
 import type { LandmarkFrame, Handedness } from '@shared/protocol'
 import { LANDMARK } from '@shared/protocol'
+import { SavitzkyGolayFilter } from './sg-filter'
 
 const TWO_PI = 2 * Math.PI
 
@@ -35,6 +36,9 @@ export class HandMotionTracker {
    */
   private readonly tau: number
   private readonly states: Map<Handedness, HandState> = new Map()
+  /** Savitzky-Golay pre-filters per hand for velocity/rotation smoothing */
+  private readonly _sgVelocity: Map<Handedness, SavitzkyGolayFilter> = new Map()
+  private readonly _sgRotation: Map<Handedness, SavitzkyGolayFilter> = new Map()
   /** Pre-allocated output objects per hand to avoid GC */
   private readonly _outputLeft: HandMotionMetrics = { velocity: 0, rotationRate: 0, distanceFromOrigin: 0, handedness: 'left' }
   private readonly _outputRight: HandMotionMetrics = { velocity: 0, rotationRate: 0, distanceFromOrigin: 0, handedness: 'right' }
@@ -45,6 +49,11 @@ export class HandMotionTracker {
     const alpha = Math.max(0.01, Math.min(0.99, smoothingAlpha))
     // Convert per-frame alpha at 30fps reference to time constant
     this.tau = -33.333 / Math.log(1 - alpha)
+    // Initialize SG filters for both hands
+    this._sgVelocity.set('left', new SavitzkyGolayFilter())
+    this._sgVelocity.set('right', new SavitzkyGolayFilter())
+    this._sgRotation.set('left', new SavitzkyGolayFilter())
+    this._sgRotation.set('right', new SavitzkyGolayFilter())
   }
 
   update(frame: LandmarkFrame): HandMotionMetrics[] {
@@ -123,10 +132,16 @@ export class HandMotionTracker {
       if (dAngle < -Math.PI) dAngle += TWO_PI
       const rawRotation = Math.abs(dAngle) / dtSec
 
+      // Savitzky-Golay pre-filter: smooth noisy finite differences before EMA
+      const sgVel = this._sgVelocity.get(hand.handedness)!
+      const sgRot = this._sgRotation.get(hand.handedness)!
+      const filteredVelocity = sgVel.filter(rawVelocity)
+      const filteredRotation = sgRot.filter(rawRotation)
+
       // Frame-rate-independent EMA: alpha_dt = 1 - exp(-dt / tau)
       const alpha = 1 - Math.exp(-dt / this.tau)
-      state.smoothedVelocity = alpha * rawVelocity + (1 - alpha) * state.smoothedVelocity
-      state.smoothedRotation = alpha * rawRotation + (1 - alpha) * state.smoothedRotation
+      state.smoothedVelocity = alpha * filteredVelocity + (1 - alpha) * state.smoothedVelocity
+      state.smoothedRotation = alpha * filteredRotation + (1 - alpha) * state.smoothedRotation
 
       // Update state
       state.centerX = cx
@@ -147,10 +162,14 @@ export class HandMotionTracker {
     if (handedness) {
       const state = this.states.get(handedness)
       if (state) state.initialized = false
+      this._sgVelocity.get(handedness)?.reset()
+      this._sgRotation.get(handedness)?.reset()
     } else {
       for (const state of this.states.values()) {
         state.initialized = false
       }
+      for (const sg of this._sgVelocity.values()) sg.reset()
+      for (const sg of this._sgRotation.values()) sg.reset()
     }
   }
 }

@@ -15,6 +15,7 @@ import {
 } from '@shared/protocol'
 import { type GestureConfig, DEFAULT_GESTURE_CONFIG } from './types'
 import { classifyGesture, detectPinch, distance } from './classifier'
+import { computeTrackingQuality } from '../tracker/quality'
 
 const TWO_PI = 2 * Math.PI
 
@@ -343,7 +344,9 @@ export class GestureEngine {
       // Classify the primary gesture for this hand (with hysteresis from previous frame)
       const hIdx = handIndex(hand.handedness)
       const cachedPinch = pinchResults.get(hand.handedness)!
-      const classification = classifyGesture(hand, effectiveConfig, this._lastClassification[hIdx], cachedPinch)
+      // Sprint 1e: pass trackingQuality to gate confidence when tracking is poor
+      const trackingQuality = computeTrackingQuality(hand.landmarks)
+      const classification = classifyGesture(hand, effectiveConfig, this._lastClassification[hIdx], cachedPinch, trackingQuality)
       this._lastClassification[hIdx] = classification?.type ?? null
 
       // Also check for twist independently

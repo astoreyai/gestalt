@@ -69,7 +69,7 @@ export const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   curlThreshold: 0.35,
   extensionThreshold: 0.55,
   minOnsetFrames: 2,
-  minHoldDuration: 40,
+  minHoldDuration: 80,
   cooldownDuration: 80,
   minConfidence: 0.5,
   twistMinRotation: 0.5,

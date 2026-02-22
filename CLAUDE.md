@@ -14,7 +14,7 @@ Electron desktop app for navigating 3D knowledge graphs and embedding manifolds 
 ```bash
 npm run dev              # Launch dev mode (electron-vite dev)
 npm run build            # Production build
-npm run test             # Run vitest (1041 tests, 34 files)
+npm run test             # Run vitest (1357 tests, 62 files)
 npm run test:watch       # Vitest watch mode
 npm run typecheck        # tsc --noEmit
 npm run lint             # ESLint 9 (flat config)
@@ -119,16 +119,16 @@ Transparent always-on-top overlay mode for OS-level gesture control. Toggle via 
 
 ```
 minOnsetFrames: 2       (consecutive matching frames)
-minHoldDuration: 40ms   (before action fires)
+minHoldDuration: 80ms   (before action fires)
 cooldownDuration: 80ms  (after release before re-trigger)
 ```
 
-Total latency: ~103ms (camera 16ms + MediaPipe ~15ms + onset 32ms + hold 40ms).
+Total latency: ~143ms (camera 16ms + MediaPipe ~15ms + onset 32ms + hold 80ms).
 Adjustable via Settings > Gestures > Responsiveness slider.
 
 ## Testing
 
-- 1041 tests, 34 test files, all passing
+- 1357 tests, 62 test files, all passing
 - Test framework: Vitest 3 with happy-dom
 - Synthetic hand data in `src/renderer/gestures/__tests__/classifier.test.ts` — fingers must be spread far enough that thumb tip and index tip distance > pinchThreshold (0.10)
 - GestureEngine tests use `{ minOnsetFrames: 1, minHoldDuration: 0 }` to avoid timing sensitivity

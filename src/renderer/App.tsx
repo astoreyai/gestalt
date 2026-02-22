@@ -33,9 +33,10 @@ import { GestureGuide } from './components/GestureGuide'
 import { UndoStack } from './controller/undo'
 import { useHandTracker } from './hooks/useHandTracker'
 import { validateData } from './data/validators'
-import { dispatchGesture } from './controller/dispatcher'
+import { dispatchGesture, dispatchTwoHandAction } from './controller/dispatcher'
 import type { SceneAction, DispatchContext } from './controller/dispatcher'
 import { GestureEngine } from './gestures/state'
+import { TwoHandCoordinator } from './gestures/two-hand-coordinator'
 import { HandMotionTracker } from './tracker/motion'
 import type { HandMotionMetrics } from './tracker/motion'
 import { TrackingQualityTracker } from './tracker/quality'
@@ -99,6 +100,7 @@ export function App(): React.ReactElement {
 
   const orbitRef = useRef<OrbitControlsImpl>(null)
   const gestureEngineRef = useRef<GestureEngine | null>(null)
+  const twoHandCoordRef = useRef<TwoHandCoordinator | null>(null)
   const motionTrackerRef = useRef<HandMotionTracker | null>(null)
   const qualityTrackerRef = useRef<TrackingQualityTracker | null>(null)
   const undoStackRef = useRef(new UndoStack(20))
@@ -129,6 +131,11 @@ export function App(): React.ReactElement {
       minOnsetFrames: 1,
       minHoldDuration: config.gestures.minHoldDuration,
       cooldownDuration: config.gestures.cooldownDuration,
+      sensitivity: config.gestures.sensitivity
+    })
+  }
+  if (!twoHandCoordRef.current) {
+    twoHandCoordRef.current = new TwoHandCoordinator({
       sensitivity: config.gestures.sensitivity
     })
   }
@@ -214,6 +221,68 @@ export function App(): React.ReactElement {
 
     // Push most significant event into store for GestureOverlay
     setActiveGesture(bestLeft ?? bestRight)
+
+    // Two-hand coordination: resolve combos before individual processing
+    const coordinator = twoHandCoordRef.current
+    if (coordinator && bestLeft && bestRight) {
+      const coord = coordinator.resolve(bestLeft, bestRight, landmarkFrame.timestamp)
+      if (coord.twoHandAction) {
+        // Dispatch two-hand combo through the dedicated two-hand dispatcher
+        const selNodeId = perHandSelectionRef.current.left ?? perHandSelectionRef.current.right
+        const twoHandCtx: DispatchContext & { handDistanceDelta: number; leftZDelta: number; rightZDelta: number } = {
+          viewMode,
+          selection: selNodeId ? { kind: 'node' as const, id: selNodeId } : null,
+          selectedNodeId: selNodeId,
+          selectedClusterId,
+          oneHandedMode: config.gestures.oneHandedMode,
+          handDistanceDelta: coord.handDistanceDelta,
+          leftZDelta: coord.leftZDelta,
+          rightZDelta: coord.rightZDelta
+        }
+        const twoHandResult = dispatchTwoHandAction(bestLeft, bestRight, twoHandCtx)
+        const actions = Array.isArray(twoHandResult) ? twoHandResult : [twoHandResult]
+        const controls = orbitRef.current
+        for (const action of actions) {
+          if (action.type === 'noop') continue
+          // Handle two-hand scene actions
+          switch (action.type) {
+            case 'orbit':
+            case 'rotate':
+              if (controls) {
+                const angle = (action.params.angle as number) * 0.05
+                const rt = controls.target
+                const cam = controls.object
+                const ox = cam.position.x - rt.x
+                const oz = cam.position.z - rt.z
+                cam.position.x = rt.x + ox * Math.cos(angle) - oz * Math.sin(angle)
+                cam.position.z = rt.z + ox * Math.sin(angle) + oz * Math.cos(angle)
+                cam.lookAt(rt)
+                controls.update()
+              }
+              break
+            case 'zoom':
+              if (controls) {
+                const zd = action.params.delta as number
+                const zf = Math.max(0.5, Math.min(2.0, 1 + zd * 0.02))
+                controls.object.position.sub(controls.target).multiplyScalar(1 / zf).add(controls.target)
+                controls.update()
+              }
+              break
+            case 'dolly':
+              if (controls) {
+                const dd = action.params.delta as number
+                const dir = controls.target.clone().sub(controls.object.position).normalize()
+                controls.object.position.addScaledVector(dir, dd * 10)
+                controls.update()
+              }
+              break
+          }
+        }
+        // Suppress individual hand gestures if coordinator says so
+        if (coord.suppressLeft) bestLeft = null
+        if (coord.suppressRight) bestRight = null
+      }
+    }
 
     // Per-hand action processing — reuse mutable objects instead of per-frame spreads
     const newHoverLeft = gestureHoverPos.left
@@ -323,8 +392,11 @@ export function App(): React.ReactElement {
           if (!controls) break
           const prev = prevHandPosRef.current[hand]
           if (prev) {
-            const dx = (handPos.x - prev.x) * 30
-            const dy = (handPos.y - prev.y) * 30
+            // Scale pan speed by camera distance — feels consistent at any zoom level
+            const camDist = controls.object.position.length()
+            const panScale = camDist * 0.03
+            const dx = (handPos.x - prev.x) * panScale
+            const dy = (handPos.y - prev.y) * panScale
             controls.target.x -= dx
             controls.target.y += dy
             controls.object.position.x -= dx
@@ -337,10 +409,11 @@ export function App(): React.ReactElement {
           if (!controls) break
           const zoomDelta = action.params.delta as number
           undoStackRef.current.push('zoom', { type: 'zoom', params: { delta: -zoomDelta } })
-          const delta = zoomDelta * 0.5
+          // Multiplicative zoom: feels proportional at all distances
+          const zoomFactor = 1 + zoomDelta * 0.02
           const camera = controls.object
-          const direction = controls.target.clone().sub(camera.position).normalize()
-          camera.position.addScaledVector(direction, delta)
+          const clamped = Math.max(0.5, Math.min(2.0, zoomFactor))
+          camera.position.sub(controls.target).multiplyScalar(1 / clamped).add(controls.target)
           controls.update()
           break
         }
@@ -566,8 +639,9 @@ export function App(): React.ReactElement {
       case 'zoom':
         if (orbitRef.current) {
           const cam = orbitRef.current.object
-          const dir = orbitRef.current.target.clone().sub(cam.position).normalize()
-          cam.position.addScaledVector(dir, inv.params.delta * 0.5)
+          const undoZoomFactor = 1 + inv.params.delta * 0.02
+          const undoClamped = Math.max(0.5, Math.min(2.0, undoZoomFactor))
+          cam.position.sub(orbitRef.current.target).multiplyScalar(1 / undoClamped).add(orbitRef.current.target)
           orbitRef.current.update()
         }
         break
@@ -615,10 +689,19 @@ export function App(): React.ReactElement {
         return
       }
 
-      // View mode shortcuts (1/2/3)
-      if (e.key === '1') { setViewMode('graph'); return }
-      if (e.key === '2') { setViewMode('manifold'); return }
-      if (e.key === '3') { setViewMode('split'); return }
+      // View mode shortcuts (1/2/3) — guard against data availability
+      if (e.key === '1') {
+        if (!graphData) { addToast('No graph data loaded', 'warning', 2000); return }
+        setViewMode('graph'); return
+      }
+      if (e.key === '2') {
+        if (!embeddingData) { addToast('No embedding data loaded', 'warning', 2000); return }
+        setViewMode('manifold'); return
+      }
+      if (e.key === '3') {
+        if (!graphData && !embeddingData) { addToast('No data loaded', 'warning', 2000); return }
+        setViewMode('split'); return
+      }
 
       // Feature toggles (F1-F5)
       if (e.key === 'F1') {
@@ -644,7 +727,7 @@ export function App(): React.ReactElement {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeModal, setActiveModal, gestureGuideVisible, performUndo, setViewMode, updateConfig, config])
+  }, [activeModal, setActiveModal, gestureGuideVisible, performUndo, setViewMode, updateConfig, config, graphData, embeddingData, addToast])
 
   // Auto-dismiss toasts based on their dismissMs
   useEffect(() => {
@@ -773,7 +856,7 @@ export function App(): React.ReactElement {
       {!overlayMode && <Canvas
         camera={{ position: [20, 15, 50], fov: 60, near: 0.1, far: 10000 }}
         style={{ background: 'var(--canvas-bg)' }}
-        frameloop="always"
+        frameloop="demand"
         dpr={Math.min(window.devicePixelRatio, 2)}
         gl={{ antialias: true, powerPreference: 'high-performance', stencil: false, alpha: false }}
       >

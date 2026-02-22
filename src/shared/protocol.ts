@@ -266,7 +266,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     minConfidence: 0.7
   },
   gestures: {
-    minHoldDuration: 40,
+    minHoldDuration: 80,
     cooldownDuration: 80,
     sensitivity: 0.5,
     oneHandedMode: false,

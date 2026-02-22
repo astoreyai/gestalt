@@ -98,12 +98,13 @@ export class TrackingQualityTracker {
     this.writeIndex = (this.writeIndex + 1) % this.windowSize
     this.count = Math.min(this.count + 1, this.windowSize)
 
-    // Compute average
-    let sum = 0
-    for (let i = 0; i < this.count; i++) {
-      sum += this.buffer[i]
-    }
-    this._quality = sum / this.count
+    // Compute median via sorted copy (robust to outliers)
+    const active = this.buffer.slice(0, this.count)
+    active.sort((a, b) => a - b)
+    const mid = Math.floor(this.count / 2)
+    this._quality = this.count % 2 === 0
+      ? (active[mid - 1] + active[mid]) / 2
+      : active[mid]
     return this._quality
   }
 
@@ -117,4 +118,17 @@ export class TrackingQualityTracker {
     this.count = 0
     this._quality = 0
   }
+}
+
+/**
+ * Map tracking quality [0, 100] to confidence [0, 1] via sigmoid.
+ * Provides better calibration than linear -- low quality maps to near-0,
+ * high quality maps to near-1, with steep transition around midpoint.
+ *
+ * @param quality Tracking quality score [0, 100]
+ * @param k Steepness parameter (default 0.1)
+ * @param midpoint Center of sigmoid (default 50)
+ */
+export function qualityToConfidence(quality: number, k = 0.1, midpoint = 50): number {
+  return 1 / (1 + Math.exp(-k * (quality - midpoint)))
 }

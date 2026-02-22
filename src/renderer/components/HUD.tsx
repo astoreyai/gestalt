@@ -30,10 +30,10 @@ const activeHighlightStyle: React.CSSProperties = {
   border: '1px solid rgba(100, 140, 255, 0.6)'
 }
 
-/** Window control button style (minimize/maximize/close) */
+/** Window control button style (minimize/maximize/close) — 44px for WCAG touch target */
 const winBtnStyle: DragStyle = {
-  width: 28,
-  height: 28,
+  width: 44,
+  height: 44,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -90,7 +90,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
         right: 12,
         pointerEvents: 'none'
       }}>
-        <div style={{
+        <div aria-live="polite" style={{
           padding: '6px 14px',
           background: 'rgba(0,0,0,0.6)',
           borderRadius: 8,
@@ -137,7 +137,7 @@ export const HUD = React.memo(function HUD({ hasGraph, hasManifold, nodeCount, p
           {getTrackingStatusIndicator(trackingEnabled)} {trackingEnabled ? 'Tracking' : 'Paused'}
         </span>
         {trackingEnabled && trackingQuality != null && (
-          <span style={{
+          <span aria-live="polite" style={{
             color: trackingQuality >= 80 ? '#6bcb77' : trackingQuality >= 50 ? '#f0c040' : '#e05050',
             fontSize: 11,
             fontWeight: 'bold'
