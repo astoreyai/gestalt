@@ -18,7 +18,9 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts')
-        }
+        },
+        // ws optional native deps — not installed, mark external to avoid build error
+        external: ['bufferutil', 'utf-8-validate']
       }
     }
   },
