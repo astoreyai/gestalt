@@ -200,6 +200,8 @@ export function analyzeHandPose(
 
 /**
  * Detect pinch gesture: thumb tip close to index tip.
+ * Distance is normalized by palm size (wrist-to-middle-MCP) so the
+ * same threshold works across different hand sizes and camera distances.
  */
 export function detectPinch(
   hand: Hand,
@@ -207,12 +209,16 @@ export function detectPinch(
 ): { detected: boolean; distance: number } {
   const thumbTip = hand.landmarks[LANDMARK.THUMB_TIP]
   const indexTip = hand.landmarks[LANDMARK.INDEX_TIP]
-  const distSq = distanceSquared(thumbTip, indexTip)
-  const thresholdSq = config.pinchThreshold * config.pinchThreshold
+  const rawDist = Math.sqrt(distanceSquared(thumbTip, indexTip))
+
+  // Normalize by palm size for hand-size invariance
+  const palmDist = distance(hand.landmarks[LANDMARK.WRIST], hand.landmarks[LANDMARK.MIDDLE_MCP])
+  const palmNorm = Math.max(palmDist, 0.001)
+  const normalizedDist = rawDist / palmNorm
 
   return {
-    detected: distSq < thresholdSq,
-    distance: Math.sqrt(distSq)
+    detected: normalizedDist < config.pinchThreshold,
+    distance: normalizedDist
   }
 }
 
