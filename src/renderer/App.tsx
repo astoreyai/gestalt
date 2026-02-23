@@ -14,7 +14,7 @@ import { Calibration } from './controller/Calibration'
 import { DataLoader } from './data/DataLoader'
 import { RemoteLoader } from './data/RemoteLoader'
 import { Settings } from './settings/Settings'
-import { ForceGraph } from './graph/ForceGraph'
+import { ForceGraph, type HandGesturePosition } from './graph/ForceGraph'
 import { PointCloud } from './manifold/PointCloud'
 import { Clusters } from './manifold/Clusters'
 import { HoverCard } from './manifold/HoverCard'
@@ -120,14 +120,11 @@ export function App(): React.ReactElement {
 
   // Per-hand tracking state (refs to avoid re-render thrashing)
   const prevHandPosRef = useRef<{ left: { x: number; y: number } | null; right: { x: number; y: number } | null }>({ left: null, right: null })
-  const lastHoveredRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null })
+  const perHandHoverRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null })
   const perHandSelectionRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null })
 
-  // Per-hand gesture hover positions (for ForceGraph raycasting)
-  const [gestureHoverPos, setGestureHoverPos] = useState<{
-    left: { x: number; y: number } | null
-    right: { x: number; y: number } | null
-  }>({ left: null, right: null })
+  // Per-hand labeled positions for ForceGraph raycasting (always-on)
+  const [handPositions, setHandPositions] = useState<HandGesturePosition[]>([])
 
   // Per-hand drag positions
   const [dragPositions, setDragPositions] = useState<{
@@ -171,14 +168,14 @@ export function App(): React.ReactElement {
     }
   }, [trackerError, addToast])
 
-  // Track last hovered node so pinch can select it even after point releases
-  // (mouse hover updates both hands since it's not hand-specific)
-  useEffect(() => {
-    if (hoveredNodeId) {
-      lastHoveredRef.current.left = hoveredNodeId
-      lastHoveredRef.current.right = hoveredNodeId
-    }
-  }, [hoveredNodeId])
+  // Per-hand hover callback from ForceGraph — updates refs directly (no re-render)
+  const handlePerHandHover = useCallback((hand: 'left' | 'right', id: string | null) => {
+    perHandHoverRef.current[hand] = id
+    // Also update the store for visual feedback (SelectionPanel, GestureOverlay, etc.)
+    // Use the left hand's hover as primary, fall back to right
+    const primary = perHandHoverRef.current.left ?? perHandHoverRef.current.right
+    hoverNode(primary)
+  }, [hoverNode])
 
   // Process landmark frames through GestureEngine → dispatcher → scene (per-hand)
   useEffect(() => {
@@ -361,19 +358,15 @@ export function App(): React.ReactElement {
       }
     }
 
-    // Always-on hover: extract hand positions from landmark frame and pass to
-    // ForceGraph for raycasting, regardless of gesture type. This means nodes
-    // highlight when ANY hand is visible — no Point gesture required.
-    // Uses index fingertip (LANDMARK 8) for pointing precision.
-    let hoverLeftOut: { x: number; y: number } | null = null
-    let hoverRightOut: { x: number; y: number } | null = null
+    // Always-on hover: extract per-hand positions from landmark frame and pass
+    // to ForceGraph for raycasting. Both hands raycast independently — each can
+    // hover a different node for multi-object manipulation.
+    const newHandPositions: HandGesturePosition[] = []
     for (const hand of landmarkFrame.hands) {
       const tip = hand.landmarks[8] // INDEX_TIP
-      if (hand.handedness === 'left') hoverLeftOut = { x: tip.x, y: tip.y }
-      else hoverRightOut = { x: tip.x, y: tip.y }
+      newHandPositions.push({ hand: hand.handedness, x: tip.x, y: tip.y })
     }
-    // Always update hover positions — ForceGraph raycasts every frame a hand is visible
-    setGestureHoverPos({ left: hoverLeftOut, right: hoverRightOut })
+    setHandPositions(newHandPositions)
 
     // Per-hand action processing — reuse mutable objects instead of per-frame spreads
     const newDragLeft = dragPositions.left
@@ -408,7 +401,7 @@ export function App(): React.ReactElement {
       // Debug: log dispatched actions (throttled to avoid console flood)
       if (action.type !== 'noop' && action.type !== 'navigate') {
         console.log(`[gesture] ${hand} ${event.type}/${event.phase} → ${action.type}`, {
-          hoveredNodeId, lastHovered: lastHoveredRef.current[hand], handPos: event.position
+          perHandHover: perHandHoverRef.current[hand], handPos: event.position
         })
       }
 
@@ -424,10 +417,10 @@ export function App(): React.ReactElement {
 
       switch (action.type) {
         case 'select': {
-          const target = hoveredNodeId ?? lastHoveredRef.current[hand]
+          const target = perHandHoverRef.current[hand]
           if (target) {
+            // Pinch on a node → select/toggle it
             const current = perHandSelectionRef.current[hand]
-            // Record undo before mutating
             if (current) {
               undoStackRef.current.push('select', { type: 'select', target: { kind: 'node', id: current } })
             } else {
@@ -441,6 +434,7 @@ export function App(): React.ReactElement {
             selectNode(perHandSelectionRef.current.left)
             selectSecondaryNode(perHandSelectionRef.current.right)
           }
+          // Pinch in empty space → no action on onset (orbit starts on hold via 'drag' without node)
           break
         }
         case 'deselect': {
@@ -565,7 +559,7 @@ export function App(): React.ReactElement {
 
     // Batch drag state updates (hover is updated unconditionally above)
     if (dragChanged) setDragPositions({ left: dragLeftOut, right: dragRightOut })
-  }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, config.visualization, selectNode, selectCluster, setActiveGesture, setActiveModal, addToast, updateConfig, graphData, overlayMode, activeModal])
+  }, [landmarkFrame, trackingEnabled, viewMode, selectedClusterId, config.gestures.oneHandedMode, config.gestures.tremorCompensation, config.visualization, config.audio, selectNode, selectSecondaryNode, selectCluster, hoverNode, setActiveGesture, addToast, updateConfig, overlayMode, dragPositions])
 
   // Update gesture engine config when settings change
   useEffect(() => {
@@ -882,11 +876,7 @@ export function App(): React.ReactElement {
   const hasData = hasGraph || hasManifold
   const onboardingComplete = useConfigStore((s) => s.config.onboardingComplete)
 
-  // Memoize gesture/drag position arrays to preserve identity across renders
-  const memoGesturePositions = useMemo(
-    () => [gestureHoverPos.left, gestureHoverPos.right].filter(Boolean) as Array<{ x: number; y: number }>,
-    [gestureHoverPos.left, gestureHoverPos.right]
-  )
+  // Memoize drag position arrays to preserve identity across renders
   const memoDragPositions = useMemo(
     () => [dragPositions.left, dragPositions.right].filter(Boolean) as Array<{ nodeId: string; x: number; y: number }>,
     [dragPositions.left, dragPositions.right]
@@ -985,10 +975,10 @@ export function App(): React.ReactElement {
               data={graphData}
               selectedNodeId={selectedNodeId}
               secondarySelectedNodeId={secondarySelectedNodeId}
-              gesturePositions={memoGesturePositions}
+              handPositions={handPositions}
               dragPositions={memoDragPositions}
               onNodeClick={selectNode}
-              onNodeHover={hoverNode}
+              onNodeHover={handlePerHandHover}
             />
           )}
 
