@@ -26,11 +26,20 @@ process.on('uncaughtException', (error) => {
   console.error('[Main] Uncaught exception:', error.message)
 })
 
-// Force ANGLE GL backend and disable Vulkan to suppress driver warnings
+// Suppress Vulkan driver warnings: the AppImage sandbox can't access system
+// Vulkan ICDs (libvulkan_intel.so, libvulkan_radeon.so). We only need WebGL
+// (via ANGLE/GL), not WebGPU/Vulkan. Set VK_ICD_FILENAMES to empty string
+// BEFORE Chromium's GPU process scans for drivers.
+process.env.VK_ICD_FILENAMES = ''
+process.env.VK_DRIVER_FILES = ''
+
+// Force ANGLE GL backend for WebGL and disable Vulkan/WebGPU features
 if (app.commandLine) {
   app.commandLine.appendSwitch('use-angle', 'gl')
   app.commandLine.appendSwitch('use-gl', 'angle')
   app.commandLine.appendSwitch('disable-vulkan')
+  app.commandLine.appendSwitch('disable-features', 'Vulkan,VulkanFromANGLE')
+  app.commandLine.appendSwitch('enable-features', 'DefaultANGLEOpenGL')
   // Platform-specific flags (e.g. Ozone on Wayland)
   for (const flag of getElectronFlags()) {
     const [key, val] = flag.replace(/^--/, '').split('=')
