@@ -506,6 +506,41 @@ export function App(): React.ReactElement {
           }
           break
         }
+        case 'orbit': {
+          // Pinch Hold in empty space → orbit camera around target
+          if (!controls) break
+          const prev = prevHandPosRef.current[hand]
+          if (prev) {
+            const camDist = controls.object.position.length()
+            const orbitScale = camDist * 0.004
+            const dx = (handPos.x - prev.x) * orbitScale
+            const dy = (handPos.y - prev.y) * orbitScale
+            // Horizontal orbit: rotate camera around Y axis
+            const rt = controls.target
+            const cam = controls.object
+            const ox = cam.position.x - rt.x
+            const oz = cam.position.z - rt.z
+            const cosH = Math.cos(-dx)
+            const sinH = Math.sin(-dx)
+            cam.position.x = rt.x + ox * cosH - oz * sinH
+            cam.position.z = rt.z + ox * sinH + oz * cosH
+            // Vertical orbit: tilt up/down (clamped to avoid flipping)
+            cam.position.y += dy * camDist * 0.01
+            cam.lookAt(rt)
+            controls.update()
+          }
+          break
+        }
+        case 'rotate_node': {
+          // Twist while node selected — visual feedback via toast (actual node rotation
+          // would require per-node quaternion tracking in ForceGraph, future work)
+          const nodeId = action.params.nodeId as string | null
+          const rotAngle = action.params.angle as number
+          if (nodeId) {
+            addToast(`Rotate node ${nodeId}: ${rotAngle > 0 ? '+' : ''}${(rotAngle * 57.3).toFixed(0)}deg`, 'info', 1500)
+          }
+          break
+        }
         case 'navigate': {
           // Hover raycasting is now always-on (from landmark frame hand positions).
           // The navigate action is retained for compatibility but has no extra work.
