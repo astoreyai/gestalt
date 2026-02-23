@@ -20,7 +20,7 @@ export interface SceneAction {
   type:
     | 'select' | 'deselect' | 'rotate' | 'pan' | 'zoom' | 'navigate' | 'drag' | 'noop'
     | 'orbit' | 'roll' | 'dolly'
-    | 'inspect' | 'scale_node' | 'rotate_node' | 'measure'
+    | 'inspect' | 'scale_node' | 'measure'
     | 'fold' | 'unfold'
     | 'undo'
     | 'toggle_info' | 'toggle_legend' | 'context_menu' | 'reset_view'
@@ -115,17 +115,6 @@ function dispatchGraphAction(gesture: GestureEvent, context: DispatchContext): S
 
     case GestureType.Twist:
       if (gesture.phase === GesturePhase.Hold) {
-        // Twist while node selected = rotate the node; otherwise rotate camera
-        if (context.selectedNodeId) {
-          return {
-            type: 'rotate_node',
-            params: {
-              nodeId: context.selectedNodeId,
-              angle: gesture.data?.rotation ?? 0,
-              axis: 'y'
-            }
-          }
-        }
         return {
           type: 'rotate',
           params: {
@@ -299,12 +288,6 @@ function dispatchManifoldAction(gesture: GestureEvent, context: DispatchContext)
 
     case GestureType.Twist:
       if (gesture.phase === GesturePhase.Hold) {
-        if (context.selectedNodeId) {
-          return {
-            type: 'rotate_node',
-            params: { nodeId: context.selectedNodeId, angle: gesture.data?.rotation ?? 0, axis: 'y' }
-          }
-        }
         return {
           type: 'rotate',
           params: { angle: gesture.data?.rotation ?? 0, axis: 'y' }

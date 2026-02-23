@@ -89,16 +89,6 @@ describe('Gesture Dispatcher', () => {
       expect(action.params.angle).toBe(30)
     })
 
-    it('should dispatch rotate_node on twist hold with selected node', () => {
-      const action = dispatchGesture(
-        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { rotation: 15 }),
-        { ...graphCtx, selectedNodeId: 'node-1' }
-      )
-      expect(action.type).toBe('rotate_node')
-      expect(action.params.nodeId).toBe('node-1')
-      expect(action.params.angle).toBe(15)
-    })
-
     it('should dispatch noop on twist onset', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Twist, GesturePhase.Onset),

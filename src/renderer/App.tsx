@@ -531,16 +531,6 @@ export function App(): React.ReactElement {
           }
           break
         }
-        case 'rotate_node': {
-          // Twist while node selected — visual feedback via toast (actual node rotation
-          // would require per-node quaternion tracking in ForceGraph, future work)
-          const nodeId = action.params.nodeId as string | null
-          const rotAngle = action.params.angle as number
-          if (nodeId) {
-            addToast(`Rotate node ${nodeId}: ${rotAngle > 0 ? '+' : ''}${(rotAngle * 57.3).toFixed(0)}deg`, 'info', 1500)
-          }
-          break
-        }
         case 'navigate': {
           // Hover raycasting is now always-on (from landmark frame hand positions).
           // The navigate action is retained for compatibility but has no extra work.
