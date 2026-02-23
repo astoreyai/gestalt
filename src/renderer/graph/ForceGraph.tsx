@@ -25,6 +25,13 @@ export interface ForceGraphHandle {
   centerOnNode: (id: string) => void
 }
 
+/** Per-hand labeled position for hover raycasting */
+export interface HandGesturePosition {
+  hand: 'left' | 'right'
+  x: number
+  y: number
+}
+
 export interface ForceGraphProps {
   /** The graph data to visualize */
   data: GraphData
@@ -32,14 +39,14 @@ export interface ForceGraphProps {
   selectedNodeId?: string | null
   /** Secondary selected node id (right hand) */
   secondarySelectedNodeId?: string | null
-  /** Normalized hand positions for gesture-based hover (0..1 screen coords), one per hand */
-  gesturePositions?: Array<{ x: number; y: number }>
+  /** Per-hand positions for always-on hover raycasting (0..1 screen coords) */
+  handPositions?: HandGesturePosition[]
   /** Drag nodes: project hand positions to 3D and override node positions */
   dragPositions?: Array<{ nodeId: string; x: number; y: number }>
   /** Callback when a node is clicked */
   onNodeClick?: (id: string) => void
-  /** Callback when a node is hovered */
-  onNodeHover?: (id: string | null) => void
+  /** Per-hand hover callback: reports which hand is hovering which node */
+  onNodeHover?: (hand: 'left' | 'right', id: string | null) => void
 }
 
 /**
@@ -48,7 +55,7 @@ export interface ForceGraphProps {
  * renders nodes/edges via instanced rendering.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
-  function ForceGraph({ data, selectedNodeId, secondarySelectedNodeId, gesturePositions, dragPositions, onNodeClick, onNodeHover }, ref) {
+  function ForceGraph({ data, selectedNodeId, secondarySelectedNodeId, handPositions, dragPositions, onNodeClick, onNodeHover }, ref) {
     const { camera } = useThree()
     const [positions, setPositions] = useState<Map<string, NodePosition>>(
       () => new Map()
@@ -56,7 +63,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     // Use prop if provided (from store), otherwise manage locally
     const [localSelectedId, setLocalSelectedId] = useState<string | null>(null)
     const selectedId = selectedNodeId !== undefined ? selectedNodeId : localSelectedId
-    const [hoveredId, setHoveredId] = useState<string | null>(null)
+    const [hoveredIds, setHoveredIds] = useState<{ left: string | null; right: string | null }>({ left: null, right: null })
     const positionsRef = useRef<Map<string, NodePosition>>(new Map())
     const animFrameRef = useRef<number>(0)
     /** Throttle setPositions to ~30fps to halve React re-renders during simulation */
@@ -151,10 +158,13 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       [onNodeClick]
     )
 
-    const handleNodeHover = useCallback(
+    // Legacy single-hover callback for mouse clicks (Nodes component)
+    const handleNodeHoverLegacy = useCallback(
       (id: string | null) => {
-        setHoveredId(id)
-        onNodeHover?.(id)
+        // Update both hands for mouse hover (not hand-specific)
+        setHoveredIds({ left: id, right: id })
+        onNodeHover?.('left', id)
+        onNodeHover?.('right', id)
       },
       [onNodeHover]
     )
@@ -164,29 +174,31 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     const hoverVecRef = useRef(new Vector3())
     const hoverNdcRef = useRef(new Vector2())
 
-    // Always-on hover: brute-force ray-distance check over all nodes.
-    // Runs every frame a hand is visible (gesturePositions set from landmark
-    // hand positions, not gated behind any gesture type). For graphs up to
-    // ~10K nodes this is <1ms — simpler and more reliable than spatial hash.
+    // Per-hand always-on hover: brute-force ray-distance check per hand.
+    // Each hand independently finds its closest node. Both hands can hover
+    // different nodes simultaneously for multi-object manipulation.
     useEffect(() => {
-      if (!gesturePositions || gesturePositions.length === 0) return
+      if (!handPositions || handPositions.length === 0) return
       const pos = positionsRef.current
       if (pos.size === 0) return
 
       const raycaster = hoverRaycasterRef.current
       const v = hoverVecRef.current
       const ndc = hoverNdcRef.current
-      let closestId: string | null = null
-      let closestDist = Infinity
 
       // Scale threshold by camera distance — generous to make hover easy.
-      // At default camera [20,15,50] (dist≈57), threshold ≈ 8.6 units.
       const hoverThreshold = Math.max(3, camera.position.length() * 0.15)
 
-      for (const gp of gesturePositions) {
-        ndc.set(gp.x * 2 - 1, -(gp.y * 2 - 1))
+      let newLeft: string | null = null
+      let newRight: string | null = null
+
+      for (const hp of handPositions) {
+        ndc.set(hp.x * 2 - 1, -(hp.y * 2 - 1))
         raycaster.setFromCamera(ndc, camera)
         const ray = raycaster.ray
+
+        let closestId: string | null = null
+        let closestDist = Infinity
 
         for (const [id, nodePos] of pos) {
           v.set(nodePos.x, nodePos.y, nodePos.z)
@@ -196,14 +208,22 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
             closestId = id
           }
         }
+
+        const hovered = (closestId && closestDist < hoverThreshold) ? closestId : null
+        if (hp.hand === 'left') newLeft = hovered
+        else newRight = hovered
       }
 
-      if (closestId && closestDist < hoverThreshold) {
-        handleNodeHover(closestId)
-      } else {
-        handleNodeHover(null)
-      }
-    }, [gesturePositions, camera, handleNodeHover])
+      // Only update state + callbacks if hover changed
+      setHoveredIds(prev => {
+        const leftChanged = prev.left !== newLeft
+        const rightChanged = prev.right !== newRight
+        if (!leftChanged && !rightChanged) return prev
+        if (leftChanged) onNodeHover?.('left', newLeft)
+        if (rightChanged) onNodeHover?.('right', newRight)
+        return { left: newLeft, right: newRight }
+      })
+    }, [handPositions, camera, onNodeHover])
 
     // Multi-drag: hand must reach the node (ray proximity) before dragging begins.
     // Once grabbed, node follows hand movement as a delta (no snapping).
@@ -273,6 +293,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       }
     }, [dragPositions, camera])
 
+    // Combine per-hand hover for visual highlight (either hand hovering = highlight)
+    const combinedHoveredId = hoveredIds.left ?? hoveredIds.right
+
     return (
       <group>
         <Edges
@@ -287,9 +310,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
           positions={positions}
           selectedId={selectedId}
           secondarySelectedId={secondarySelectedNodeId}
-          hoveredId={hoveredId}
+          hoveredId={combinedHoveredId}
           onNodeClick={handleNodeClick}
-          onNodeHover={handleNodeHover}
+          onNodeHover={handleNodeHoverLegacy}
         />
       </group>
     )
