@@ -47,12 +47,12 @@ describe('Gesture Dispatcher', () => {
       expect(action.params.x).toBe(0.5)
     })
 
-    it('should dispatch noop on pinch hold with no selection', () => {
+    it('should dispatch orbit on pinch hold with no selection', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Pinch, GesturePhase.Hold),
         graphCtx
       )
-      expect(action.type).toBe('noop')
+      expect(action.type).toBe('orbit')
     })
 
     it('should dispatch drag on pinch hold with selected node', () => {
@@ -80,13 +80,23 @@ describe('Gesture Dispatcher', () => {
       expect(action.type).toBe('noop')
     })
 
-    it('should dispatch rotate on twist hold', () => {
+    it('should dispatch rotate on twist hold with no selection', () => {
       const action = dispatchGesture(
         makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { rotation: 30 }),
         graphCtx
       )
       expect(action.type).toBe('rotate')
       expect(action.params.angle).toBe(30)
+    })
+
+    it('should dispatch rotate_node on twist hold with selected node', () => {
+      const action = dispatchGesture(
+        makeGesture(GestureType.Twist, GesturePhase.Hold, 'right', { rotation: 15 }),
+        { ...graphCtx, selectedNodeId: 'node-1' }
+      )
+      expect(action.type).toBe('rotate_node')
+      expect(action.params.nodeId).toBe('node-1')
+      expect(action.params.angle).toBe(15)
     })
 
     it('should dispatch noop on twist onset', () => {
