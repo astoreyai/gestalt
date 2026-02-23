@@ -164,12 +164,10 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
     const hoverVecRef = useRef(new Vector3())
     const hoverNdcRef = useRef(new Vector2())
 
-    // Gesture-based hover: brute-force ray-distance check over all nodes.
-    // For graphs up to ~10K nodes this is <1ms per frame — simpler and more
-    // reliable than the spatial-hash approach which was mis-projecting rays.
-    // NOTE: We intentionally do NOT clear hover when gesturePositions becomes
-    // empty — the last hovered node must persist so Pinch can select it after
-    // Point releases (there's always a gap frame between Point→Pinch).
+    // Always-on hover: brute-force ray-distance check over all nodes.
+    // Runs every frame a hand is visible (gesturePositions set from landmark
+    // hand positions, not gated behind any gesture type). For graphs up to
+    // ~10K nodes this is <1ms — simpler and more reliable than spatial hash.
     useEffect(() => {
       if (!gesturePositions || gesturePositions.length === 0) return
       const pos = positionsRef.current
@@ -181,8 +179,9 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       let closestId: string | null = null
       let closestDist = Infinity
 
-      // Scale threshold by camera distance — easier to hover when zoomed out
-      const hoverThreshold = Math.max(2, camera.position.length() * 0.08)
+      // Scale threshold by camera distance — generous to make hover easy.
+      // At default camera [20,15,50] (dist≈57), threshold ≈ 8.6 units.
+      const hoverThreshold = Math.max(3, camera.position.length() * 0.15)
 
       for (const gp of gesturePositions) {
         ndc.set(gp.x * 2 - 1, -(gp.y * 2 - 1))
@@ -202,10 +201,6 @@ export const ForceGraph = forwardRef<ForceGraphHandle, ForceGraphProps>(
       if (closestId && closestDist < hoverThreshold) {
         handleNodeHover(closestId)
       } else {
-        // Debug: log near misses to diagnose threshold issues
-        if (closestId && closestDist < hoverThreshold * 3) {
-          console.log(`[hover] near miss: ${closestId} dist=${closestDist.toFixed(2)} threshold=${hoverThreshold.toFixed(2)}`)
-        }
         handleNodeHover(null)
       }
     }, [gesturePositions, camera, handleNodeHover])
