@@ -361,16 +361,25 @@ export function App(): React.ReactElement {
       }
     }
 
+    // Always-on hover: extract hand positions from landmark frame and pass to
+    // ForceGraph for raycasting, regardless of gesture type. This means nodes
+    // highlight when ANY hand is visible — no Point gesture required.
+    // Uses index fingertip (LANDMARK 8) for pointing precision.
+    let hoverLeftOut: { x: number; y: number } | null = null
+    let hoverRightOut: { x: number; y: number } | null = null
+    for (const hand of landmarkFrame.hands) {
+      const tip = hand.landmarks[8] // INDEX_TIP
+      if (hand.handedness === 'left') hoverLeftOut = { x: tip.x, y: tip.y }
+      else hoverRightOut = { x: tip.x, y: tip.y }
+    }
+    // Always update hover positions — ForceGraph raycasts every frame a hand is visible
+    setGestureHoverPos({ left: hoverLeftOut, right: hoverRightOut })
+
     // Per-hand action processing — reuse mutable objects instead of per-frame spreads
-    const newHoverLeft = gestureHoverPos.left
-    const newHoverRight = gestureHoverPos.right
     const newDragLeft = dragPositions.left
     const newDragRight = dragPositions.right
-    let hoverLeftOut = newHoverLeft
-    let hoverRightOut = newHoverRight
     let dragLeftOut = newDragLeft
     let dragRightOut = newDragRight
-    let hoverChanged = false
     let dragChanged = false
 
     // Pre-allocated dispatch context (reused per hand)
@@ -385,8 +394,6 @@ export function App(): React.ReactElement {
     const processHand = (event: GestureEvent | null, hand: 'left' | 'right'): void => {
       if (!event) {
         prevHandPosRef.current[hand] = null
-        if (hand === 'left' && hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
-        if (hand === 'right' && hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
         if (hand === 'left' && dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
         if (hand === 'right' && dragRightOut !== null) { dragRightOut = null; dragChanged = true }
         return
@@ -400,19 +407,14 @@ export function App(): React.ReactElement {
 
       // Debug: log dispatched actions (throttled to avoid console flood)
       if (action.type !== 'noop' && action.type !== 'navigate') {
-        console.log(`[gesture] ${hand} ${event.type}/${GesturePhase[event.phase]} → ${action.type}`, {
+        console.log(`[gesture] ${hand} ${event.type}/${event.phase} → ${action.type}`, {
           hoveredNodeId, lastHovered: lastHoveredRef.current[hand], handPos: event.position
         })
       }
 
       if (action.type === 'noop') {
-        if (hand === 'left') {
-          if (hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
-          if (dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
-        } else {
-          if (hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
-          if (dragRightOut !== null) { dragRightOut = null; dragChanged = true }
-        }
+        if (hand === 'left' && dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
+        if (hand === 'right' && dragRightOut !== null) { dragRightOut = null; dragChanged = true }
         prevHandPosRef.current[hand] = { x: event.position.x, y: event.position.y }
         return
       }
@@ -511,9 +513,8 @@ export function App(): React.ReactElement {
           break
         }
         case 'navigate': {
-          if (hand === 'left') { hoverLeftOut = { x: handPos.x, y: handPos.y } }
-          else { hoverRightOut = { x: handPos.x, y: handPos.y } }
-          hoverChanged = true
+          // Hover raycasting is now always-on (from landmark frame hand positions).
+          // The navigate action is retained for compatibility but has no extra work.
           break
         }
         case 'toggle_info': {
@@ -550,11 +551,7 @@ export function App(): React.ReactElement {
         }
       }
 
-      // Clear hover/drag for non-matching actions
-      if (action.type !== 'navigate') {
-        if (hand === 'left' && hoverLeftOut !== null) { hoverLeftOut = null; hoverChanged = true }
-        if (hand === 'right' && hoverRightOut !== null) { hoverRightOut = null; hoverChanged = true }
-      }
+      // Clear drag for non-drag actions (hover is always-on, never cleared by gesture type)
       if (action.type !== 'drag') {
         if (hand === 'left' && dragLeftOut !== null) { dragLeftOut = null; dragChanged = true }
         if (hand === 'right' && dragRightOut !== null) { dragRightOut = null; dragChanged = true }
@@ -566,8 +563,7 @@ export function App(): React.ReactElement {
     processHand(bestLeft, 'left')
     processHand(bestRight, 'right')
 
-    // Batch state updates
-    if (hoverChanged) setGestureHoverPos({ left: hoverLeftOut, right: hoverRightOut })
+    // Batch drag state updates (hover is updated unconditionally above)
     if (dragChanged) setDragPositions({ left: dragLeftOut, right: dragRightOut })
   }, [landmarkFrame, trackingEnabled, viewMode, hoveredNodeId, selectedClusterId, config.gestures.oneHandedMode, config.visualization, selectNode, selectCluster, setActiveGesture, setActiveModal, addToast, updateConfig, graphData, overlayMode, activeModal])
 
